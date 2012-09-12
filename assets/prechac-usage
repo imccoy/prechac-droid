@@ -1,0 +1,2 @@
+use_module('siteswap_main_page').
+find_siteswaps(SiteswapList, 2, 4, 6, 3, 2, 2, [],[],[],[],[],[],0,R),[Flag,Time,Objects,Length,X] = SiteswapList.
