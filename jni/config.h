@@ -615,7 +615,7 @@
 /* #undef INT64_ALIGNMENT */
 
 /* printf format for int64_t datatype */
-#define INT64_FORMAT "%ld"
+#define INT64_FORMAT "%lld"
 
 /* String used to prefix all symbols requested through dlsym() */
 #define LD_SYMBOL_PREFIX "_"
@@ -694,19 +694,19 @@
 #define SIZEOF_INT 4
 
 /* The size of `long', as computed by sizeof. */
-#define SIZEOF_LONG 8
+#define SIZEOF_LONG 4
 
 /* The size of `long long', as computed by sizeof. */
 #define SIZEOF_LONG_LONG 8
 
 /* The size of `void*', as computed by sizeof. */
-#define SIZEOF_VOIDP 8
+#define SIZEOF_VOIDP 4
 
 /* The size of `wchar_t', as computed by sizeof. */
 #define SIZEOF_WCHAR_T 4
 
 /* Define to the extension of shared objects (often .so) */
-#define SO_EXT "dylib"
+#define SO_EXT "so"
 
 /* Program to link shared objects */
 #define SO_LD "gcc"

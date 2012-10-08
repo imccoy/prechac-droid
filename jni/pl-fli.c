@@ -2421,8 +2421,8 @@ int
 PL_unify_atom_chars(term_t t, const char *chars)
 { GET_LD
   atom_t a = lookupAtom(chars, strlen(chars));
-  int rval = unifyAtomic(t, a PASS_LD);
 
+  int rval = unifyAtomic(t, a PASS_LD);
   PL_unregister_atom(a);
 
   return rval;

@@ -381,7 +381,7 @@ DECL_PLIST(dlopen);
 DECL_PLIST(system);
 DECL_PLIST(op);
 DECL_PLIST(rec);
-//DECL_PLIST(termhash);
+DECL_PLIST(termhash);
 DECL_PLIST(dde);
 //DECL_PLIST(term);
 DECL_PLIST(debug);
@@ -426,7 +426,7 @@ initBuildIns(void)
   REG_PLIST(op);
   REG_PLIST(rec);
 //  REG_PLIST(term);
-//  REG_PLIST(termhash);
+  REG_PLIST(termhash);
 #ifdef O_ATTVAR
   REG_PLIST(attvar);
 #endif

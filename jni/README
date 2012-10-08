@@ -1,4 +1,4 @@
-This folder is just the .c and .h files from swi-prolog's src/ directory, as
+This folder is mostly the .c and .h files from swi-prolog's src/ directory, as
 at revision 8c768b7310a97c0927d4297d09243155b9461da5.
 
 It includes .ic and .ih files resulting from a compilation run. The config.h was
@@ -6,8 +6,14 @@ initially generated, but then altered as neccessary.
 
 It also contains SWI-Stream.h from the include/ directory.
 
+jpl.c comes from swi-prolog/packages/jpl/src/c/jpl.c
+
 There's a few small changes:
   * commented out the alloca bit in pl-incl.h
   * added <fcntl.h> include to pl-thread
-  * skipped tai, term and termhash from DECL_PLISTs and REG_PLISTs in pl-ext.c
+  * skipped tai and term from DECL_PLISTs and REG_PLISTs in pl-ext.c
   * skip open_xterm in PL_extension foreigns
+  * skip cleanupTerm in pl-init.c's cleanupProlog
+  * changed chflags |= REP_MB to chflags |= REP_UTF8 in os/pl-files.c
+    get_file_name
+

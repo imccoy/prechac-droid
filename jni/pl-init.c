@@ -54,6 +54,8 @@ option  parsing,  initialisation  and  handling  of errors and warnings.
 #include <mcheck.h>
 #endif
 
+#include <android/log.h>
+
 static int	usage(void);
 static int	giveVersionInfo(const char *a);
 static bool	vsysError(const char *fm, va_list args);
@@ -975,7 +977,8 @@ PL_initialise(int argc, char **argv)
   setAccessLevel(ACCESS_LEVEL_SYSTEM);
 
   if ( GD->bootsession )
-  { IOSTREAM *s = SopenRC(GD->resourceDB, "$state", "$prolog", RC_WRONLY);
+  {
+    IOSTREAM *s = SopenRC(GD->resourceDB, "$state", "$prolog", RC_WRONLY);
     char *rcpathcopy = store_string(rcpath); /* rcpath is destroyed on close */
 
     if ( !compileFileList(s, argc, argv) )
@@ -1000,10 +1003,12 @@ PL_initialise(int argc, char **argv)
 #endif
     PL_halt(0);
   } else
-  { IOSTREAM *statefd = SopenRC(GD->resourceDB, "$state", "$prolog", RC_RDONLY);
+  {
+    IOSTREAM *statefd = SopenRC(GD->resourceDB, "$state", "$prolog", RC_RDONLY);
 
     if ( statefd )
-    { GD->bootsession = TRUE;
+    {
+      GD->bootsession = TRUE;
       if ( !loadWicFromStream(statefd) )
       { fail;
       }
@@ -1011,7 +1016,8 @@ PL_initialise(int argc, char **argv)
 
       Sclose(statefd);
     } else
-    { fatalError("Resource database \"%s\" does not contain a saved state",
+    {
+      fatalError("Resource database \"%s\" does not contain a saved state",
 		 rcpath);
     }
   }
@@ -1473,6 +1479,9 @@ void
 vfatalError(const char *fm, va_list args)
 { static int active = 0;
 
+  char optimistic[2048];
+  Svsprintf(optimistic, fm, args);
+  __android_log_print(ANDROID_LOG_ERROR, "FATAL PROLOG ERROR", optimistic);
   switch ( active++ )
   { case 1:
       exit(2);

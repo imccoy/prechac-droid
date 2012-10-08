@@ -31,6 +31,8 @@
 #include <unistd.h>
 #endif
 
+#include "android/log.h"
+
 #define Qgetc(s) Snpgetc(s)		/* ignore position recording */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
