@@ -3,7 +3,7 @@
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2012, University of Amsterdam
+    Copyright (C): 1985-2013, University of Amsterdam
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -285,8 +285,12 @@ putAtomArray(size_t where, Atom a)
   { PL_LOCK(L_MISC);
     if ( !GD->atoms.array.blocks[idx] )
     { size_t bs = (size_t)1<<idx;
-      Atom *newblock = PL_malloc_uncollectable(bs*sizeof(Atom));
+      Atom *newblock;
 
+      if ( !(newblock=PL_malloc_uncollectable(bs*sizeof(Atom))) )
+	outOfCore();
+
+      memset(newblock, 0, bs*sizeof(Atom));
       GD->atoms.array.blocks[idx] = newblock-bs;
     }
     PL_UNLOCK(L_MISC);
@@ -394,10 +398,11 @@ lookupBlob(const char *s, size_t length, PL_blob_t *type, int *new)
 	  {
 #ifdef ATOMIC_REFERENCES
 	    if ( ATOMIC_INC(&a->references) == 1 )
+	      ATOMIC_DEC(&GD->atoms.unregistered);
 #else
 	    if ( ++a->references == 1 )
-#endif
 	      GD->atoms.unregistered--;
+#endif
 	  }
 #endif
           UNLOCK();
@@ -416,10 +421,11 @@ lookupBlob(const char *s, size_t length, PL_blob_t *type, int *new)
 #ifdef O_ATOMGC
 #ifdef ATOMIC_REFERENCES
 	  if ( ATOMIC_INC(&a->references) == 1 )
+	    ATOMIC_DEC(&GD->atoms.unregistered);
 #else
 	  if ( a->references++ == 0 )
-#endif
 	    GD->atoms.unregistered--;
+#endif
 #endif
           UNLOCK();
 	  *new = FALSE;
@@ -464,9 +470,7 @@ lookupBlob(const char *s, size_t length, PL_blob_t *type, int *new)
 #ifdef O_ATOMGC
   if ( GD->atoms.margin != 0 &&
        GD->atoms.unregistered >= GD->atoms.non_garbage + GD->atoms.margin )
-  { intptr_t x = GD->atoms.unregistered - (GD->atoms.non_garbage + GD->atoms.margin);
-
-    if ( x % 128 == 0 )			/* see (*) above */
+  { if ( GD->statistics.atoms % 128 == 0 ) /* see (*) above */
       PL_raise(SIG_ATOM_GC);
   }
 #endif
@@ -611,7 +615,7 @@ markAtom(atom_t a)
 
   ap = fetchAtomArray(i);
 
-  if ( ap )
+  if ( ap && !(ap->references & ATOM_MARKED_REFERENCE) )
   {
 #ifdef O_DEBUG_ATOMGC
     if ( atomLogFd )
@@ -622,6 +626,35 @@ markAtom(atom_t a)
 #else
     ap->references |= ATOM_MARKED_REFERENCE;
 #endif
+  }
+}
+
+void
+unmarkAtoms(void)
+{ size_t index;
+  int i, last=FALSE;
+
+  for(index=GD->atoms.builtin, i=MSB(index); !last; i++)
+  { size_t upto = (size_t)2<<i;
+    Atom *b = GD->atoms.array.blocks[i];
+
+    if ( upto >= GD->atoms.highest )
+    { upto = GD->atoms.highest;
+      last = TRUE;
+    }
+
+    for(; index<upto; index++)
+    { Atom a = b[index];
+
+      if ( a && (a->references & ATOM_MARKED_REFERENCE) )
+      {
+#ifdef ATOMIC_REFERENCES
+        ATOMIC_AND(&a->references, ~ATOM_MARKED_REFERENCE);
+#else
+        a->references &= ~ATOM_MARKED_REFERENCE;
+#endif
+      }
+    }
   }
 }
 
@@ -686,6 +719,7 @@ static size_t
 collectAtoms(void)
 { int hole_seen = FALSE;
   size_t reclaimed = 0;
+  size_t unregistered = 0;
   size_t index;
   int i, last=FALSE;
 
@@ -724,9 +758,13 @@ collectAtoms(void)
 #else
 	a->references &= ~ATOM_MARKED_REFERENCE;
 #endif
+        if ( a->references == 0 )
+	  unregistered++;
       }
     }
   }
+
+  GD->atoms.unregistered = GD->atoms.non_garbage = unregistered;
 
   return reclaimed;
 }
@@ -780,13 +818,15 @@ pl_garbage_collect_atoms(void)
 
   PL_LOCK(L_THREAD);
   PL_LOCK(L_AGC);
+  PL_LOCK(L_STOPTHEWORLD);
   LOCK();
   GD->atoms.gc_active = TRUE;
   blockSignals(&set);
   t = CpuTime(CPU_USER);
+  unmarkAtoms();
   markAtomsOnStacks(LD);
 #ifdef O_PLMT
-  forThreadLocalData(markAtomsOnStacks, 0);
+  forThreadLocalDataUnsuspended(markAtomsOnStacks, 0);
   markAtomsMessageQueues();
 #endif
   oldcollected = GD->atoms.collected;
@@ -794,13 +834,12 @@ pl_garbage_collect_atoms(void)
   GD->atoms.gc_active = FALSE;
   GD->atoms.collected += reclaimed;
   GD->statistics.atoms -= reclaimed;
-  GD->atoms.unregistered -= reclaimed;
-  GD->atoms.non_garbage = GD->atoms.unregistered;
   t = CpuTime(CPU_USER) - t;
   GD->atoms.gc_time += t;
   GD->atoms.gc++;
   unblockSignals(&set);
   UNLOCK();
+  PL_UNLOCK(L_STOPTHEWORLD);
   PL_UNLOCK(L_AGC);
   PL_UNLOCK(L_THREAD);
   gc_status.blocked--;
@@ -990,7 +1029,7 @@ rehashAtoms(void)
     for(; index<upto; index++)
     { Atom a = b[index];
 
-      if ( a )
+      if ( a && true(a->type, PL_BLOB_UNIQUE) )
       { size_t v = a->hash_value & mask;
 
 	a->next = atomTable[v];
@@ -1049,13 +1088,15 @@ registerBuiltinAtoms(void)
 
 
 #if O_DEBUG
-static void
+static int
 exitAtoms(int status, void *context)
 { (void)status;
   (void)context;
 
   Sdprintf("hashstat: %d lookupAtom() calls used %d strcmp() calls\n",
 	   lookups, cmps);
+
+  return 0;
 }
 #endif
 
@@ -1275,19 +1316,56 @@ PRED_IMPL("$atom_references", 2, atom_references, 0)
 #define ALT_MAX 256		/* maximum number of alternatives */
 #define stringMatch(m)	((m)->name->name)
 
+#define is_signalled() unlikely(LD && LD->signal.pending != 0)
+
 typedef struct match
 { Atom		name;
   size_t	length;
 } *Match;
 
 
-static bool
-allAlpha(const char *s, size_t len)
-{ for( ; --len>=0; s++)
-  { if ( !*s || !isAlpha(*s) )
-      fail;
+static inline int
+completion_candidate(Atom a)
+{ return (a->references || indexAtom(a->atom) < GD->atoms.builtin);
+}
+
+
+static int
+is_identifier_text(PL_chars_t *txt)
+{ if ( txt->length == 0 )
+    return FALSE;
+
+  switch(txt->encoding)
+  { case ENC_ISO_LATIN_1:
+    { const unsigned char *s = (const unsigned char *)txt->text.t;
+      const unsigned char *e = &s[txt->length];
+
+      if ( !f_is_prolog_atom_start(*s) )
+	return FALSE;
+
+      for(s++; s<e; s++)
+      { if ( !f_is_prolog_identifier_continue(*s) )
+	  return FALSE;
+      }
+      return TRUE;
+    }
+    case ENC_WCHAR:
+    { const pl_wchar_t *s = (const pl_wchar_t*)txt->text.w;
+      const pl_wchar_t *e = &s[txt->length];
+
+      if ( !f_is_prolog_atom_start(*s) )
+	return FALSE;
+
+      for(s++; s<e; s++)
+      { if ( !f_is_prolog_identifier_continue(*s) )
+	  return FALSE;
+      }
+      return TRUE;
+    }
+    default:
+      assert(0);
+      return FALSE;
   }
-  succeed;
 }
 
 
@@ -1313,6 +1391,7 @@ extendAtom(char *prefix, bool *unique, char *common)
     { Atom a = b[index];
 
       if ( a && a->type == &text_atom &&
+	   completion_candidate(a) &&
 	   strprefix(a->name, prefix) &&
 	   strlen(a->name) < LINESIZ )
       { if ( first == TRUE )
@@ -1334,9 +1413,27 @@ extendAtom(char *prefix, bool *unique, char *common)
 }
 
 
-word
-pl_complete_atom(term_t prefix, term_t common, term_t unique)
-{ char *p;
+/** '$complete_atom'(+Prefix, -Common, -Unique) is semidet.
+
+True when Prefix can be extended based on currently defined atoms.
+
+@arg Common is a code list consisting of the characters from Prefix
+     and the common text for all possible completions
+@arg Unique is either =unique= or =not_unique=.  In the second case,
+     this implies that there are longer atoms that have the prefix
+     Common.
+@see '$atom_completions'/2.
+@bug This version only handles ISO Latin 1 text
+*/
+
+static
+PRED_IMPL("$complete_atom", 3, complete_atom, 0)
+{ PRED_LD
+  term_t prefix = A1;
+  term_t common = A2;
+  term_t unique = A3;
+
+  char *p;
   bool u;
   char buf[LINESIZ];
   char cmm[LINESIZ];
@@ -1346,9 +1443,7 @@ pl_complete_atom(term_t prefix, term_t common, term_t unique)
   strcpy(buf, p);
 
   if ( extendAtom(p, &u, cmm) )
-  { GET_LD
-
-    strcat(buf, cmm);
+  { strcat(buf, cmm);
     if ( PL_unify_list_codes(common, buf) &&
 	 PL_unify_atom(unique, u ? ATOM_unique
 				 : ATOM_not_unique) )
@@ -1365,8 +1460,8 @@ compareMatch(const void *m1, const void *m2)
 }
 
 
-static bool
-extend_alternatives(char *prefix, struct match *altv, int *altn)
+static int
+extend_alternatives(PL_chars_t *prefix, struct match *altv, int *altn)
 { size_t index;
   int i, last=FALSE;
 
@@ -1382,11 +1477,16 @@ extend_alternatives(char *prefix, struct match *altv, int *altn)
 
     for(; index<upto; index++)
     { Atom a = b[index];
+      PL_chars_t hit;
 
-      if ( a && a->type == &text_atom &&
-	   strprefix(a->name, prefix) &&
-	   a->length < ALT_SIZ &&
-	   allAlpha(a->name, a->length) )
+      if ( index % 256 == 0 && PL_handle_signals() < 0 )
+	return FALSE;			/* interrupted */
+
+      if ( a && completion_candidate(a) &&
+	   get_atom_ptr_text(a, &hit) &&
+	   hit.length < ALT_SIZ &&
+	   PL_cmp_text(prefix, 0, &hit, 0, prefix->length) == 0 &&
+	   is_identifier_text(&hit) )
       { Match m = &altv[(*altn)++];
 
 	m->name = a;
@@ -1400,31 +1500,44 @@ extend_alternatives(char *prefix, struct match *altv, int *altn)
 out:
   qsort(altv, *altn, sizeof(struct match), compareMatch);
 
-  succeed;
+  return TRUE;
 }
 
 
-word
-pl_atom_completions(term_t prefix, term_t alternatives)
-{ GET_LD
-  char *p;
-  char buf[LINESIZ];
+/** '$atom_completions'(+Prefix, -Alternatives:list(atom)) is det.
+
+True when Alternatives is a list of   all  atoms that have prefix Prefix
+and are considered completion  candidates.   Completions  candidates are
+atoms that
+
+  - Are built-in or referenced from some static datastructure
+  - All characters are legal characters for unquoted atoms
+  - The atom is at most 80 characters long
+*/
+
+static
+PRED_IMPL("$atom_completions", 2, atom_completions, 0)
+{ PRED_LD
+  term_t prefix = A1;
+  term_t alternatives = A2;
+
+  PL_chars_t p_text;
   struct match altv[ALT_MAX];
   int altn;
   int i;
   term_t alts = PL_copy_term_ref(alternatives);
   term_t head = PL_new_term_ref();
 
-  if ( !PL_get_chars(prefix, &p, CVT_ALL|CVT_EXCEPTION) )
-    fail;
-  strcpy(buf, p);
+  if ( !PL_get_text(prefix, &p_text, CVT_ALL|CVT_EXCEPTION) )
+    return FALSE;
 
-  extend_alternatives(buf, altv, &altn);
+  if ( !extend_alternatives(&p_text, altv, &altn) )
+    return FALSE;			/* interrupt */
 
   for(i=0; i<altn; i++)
   { if ( !PL_unify_list(alts, head, alts) ||
 	 !PL_unify_atom(head, altv[i].name->atom) )
-      fail;
+      return FALSE;
   }
 
   return PL_unify_nil(alts);
@@ -1445,38 +1558,6 @@ thread.
 #include <pthread.h>
 static pthread_key_t key;
 #endif
-
-#define is_signalled() unlikely(LD && LD->signal.pending != 0)
-
-static int
-alnum_text(PL_chars_t *txt)
-{ switch(txt->encoding)
-  { case ENC_ISO_LATIN_1:
-    { const unsigned char *s = (const unsigned char *)txt->text.t;
-      const unsigned char *e = &s[txt->length];
-
-      for(; s<e; s++)
-      { if ( !isAlpha(*s) )
-	  return FALSE;
-      }
-      return TRUE;
-    }
-    case ENC_WCHAR:
-    { const pl_wchar_t *s = (const pl_wchar_t*)txt->text.w;
-      const pl_wchar_t *e = &s[txt->length];
-
-      for(; s<e; s++)
-      { if ( !isAlphaW(*s) )
-	  return FALSE;
-      }
-      return TRUE;
-    }
-    default:
-      assert(0);
-      return FALSE;
-  }
-}
-
 
 static int
 atom_generator(PL_chars_t *prefix, PL_chars_t *hit, int state)
@@ -1515,10 +1596,11 @@ atom_generator(PL_chars_t *prefix, PL_chars_t *hit, int state)
       if ( is_signalled() )		/* Notably allow windows version */
 	PL_handle_signals();		/* to break out on ^C */
 
-      if ( a && get_atom_ptr_text(a, hit) &&
-	 hit->length < ALT_SIZ &&
-	 PL_cmp_text(prefix, 0, hit, 0, prefix->length) == 0 &&
-	 alnum_text(hit) )
+      if ( a && completion_candidate(a) &&
+	   get_atom_ptr_text(a, hit) &&
+	   hit->length < ALT_SIZ &&
+	   PL_cmp_text(prefix, 0, hit, 0, prefix->length) == 0 &&
+	   is_identifier_text(hit) )
       {
 #ifdef O_PLMT
         pthread_setspecific(key, (void *)(index+1));
@@ -1586,6 +1668,25 @@ PL_atom_generator_w(const pl_wchar_t *prefix,
   return NULL;
 }
 
+		 /*******************************
+		 *	   SPECIAL ATOMS	*
+		 *******************************/
+
+/* This code provides forward compatibility between 6.0 and 7.0
+   for shared objects that acts as plugin.
+*/
+
+static const atom_t special_atoms[] =
+{ ATOM_nil,				/* 0: [] */
+  ATOM_dot				/* 1: .(_|_) or '$cons'(_,_) */
+};
+
+
+const atom_t *
+_PL_atoms(void)
+{ return special_atoms;
+}
+
 
 		 /*******************************
 		 *      PUBLISH PREDICATES	*
@@ -1596,4 +1697,6 @@ BeginPredDefs(atom)
   PRED_DEF("current_atom", 1, current_atom, PL_FA_NONDETERMINISTIC)
   PRED_DEF("blob", 2, blob, 0)
   PRED_DEF("$atom_references", 2, atom_references, 0)
+  PRED_DEF("$atom_completions", 2, atom_completions, 0)
+  PRED_DEF("$complete_atom", 3, complete_atom, 0)
 EndPredDefs

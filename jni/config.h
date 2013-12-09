@@ -1,11 +1,23 @@
 /* config.h.  Generated from config.h.in by configure.  */
 /* config.h.in.  Generated from configure.in by autoheader.  */
 
+/* Define if building universal (internal helper macro) */
+/* #undef AC_APPLE_UNIVERSAL_BUILD */
+
+/* The normal alignment of `double', in bytes. */
+#define ALIGNOF_DOUBLE 4
+
+/* The normal alignment of `int64_t', in bytes. */
+#define ALIGNOF_INT64_T 4
+
+/* The normal alignment of `void*', in bytes. */
+#define ALIGNOF_VOIDP 4
+
 /* Define if <assert.h> requires <stdio.h> */
 /* #undef ASSERT_H_REQUIRES_STDIO_H */
 
 /* Name of the file to boot from */
-#define BOOTFILE "boot64.prc"
+#define BOOTFILE "boot32.prc"
 
 /* Define if BSD compatible signals (i.e. no reset when fired) */
 #define BSD_SIGNALS 1
@@ -23,9 +35,6 @@
 
 /* Define if you want to use dmalloc */
 /* #undef DMALLOC */
-
-/* Define if doubles cannot be aligned as pointers */
-/* #undef DOUBLE_ALIGNMENT */
 
 /* we have fcntl() and it supports F_SETLKW */
 #define FCNTL_LOCKS 1
@@ -174,10 +183,10 @@
 #define HAVE_GETWD 1
 
 /* Define to 1 if you have the <gmp.h> header file. */
-/* #define HAVE_GMP_H 1 */
+/* #undef HAVE_GMP_H */
 
 /* Define you you have gmp_randinit_mt (gmp > 4.2.0) */
-/* #define HAVE_GMP_RANDINIT_MT 1 */
+/* #undef HAVE_GMP_RANDINIT_MT */
 
 /* Define to 1 if you have the `grantpt' function. */
 #define HAVE_GRANTPT 1
@@ -593,6 +602,9 @@
 /* Define to 1 if you have the <wchar.h> header file. */
 #define HAVE_WCHAR_H 1
 
+/* Define to 1 if you have the `wcsdup' function. */
+/* #undef HAVE_WCSDUP */
+
 /* Define to 1 if you have the `wcsxfrm' function. */
 #define HAVE_WCSXFRM 1
 
@@ -665,6 +677,9 @@
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME ""
+
+/* Define to the home page for this package. */
+#define PACKAGE_URL ""
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION ""
@@ -770,6 +785,9 @@
 
 /* Define to `int' if <sys/types.h> does not define. */
 /* #undef pid_t */
+
+/* Define to `unsigned int' if <sys/types.h> does not define. */
+/* #undef size_t */
 
 /* Define as `fork' if `vfork' does not work. */
 /* #undef vfork */

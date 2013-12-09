@@ -60,26 +60,32 @@ init_mem_pool(mem_pool *mp)
   mp->first.used = 0;
 }
 
+#define ROUNDUP(n,m) (((n) + (m - 1)) & ~(m-1))
+
 static void *
 alloc_mem_pool(mem_pool *mp, size_t bytes)
 { char *ptr;
 
   if ( mp->chunks->used + bytes <= mp->chunks->size )
   { ptr = &((char *)(mp->chunks+1))[mp->chunks->used];
-    mp->chunks->used += bytes;
+    mp->chunks->used += ROUNDUP(bytes, sizeof(void*));
   } else
   { size_t chunksize = (bytes < 1000 ? 4000 : bytes);
     mem_chunk *c = PL_malloc_atomic_unmanaged(chunksize+sizeof(mem_chunk));
 
     if ( c )
     { c->size    = chunksize;
-      c->used    = bytes;
+      c->used    = ROUNDUP(bytes, sizeof(void*));
       c->prev    = mp->chunks;
       mp->chunks = c;
       ptr        = (char *)(mp->chunks+1);
     } else
       return NULL;
   }
+
+#ifdef O_DEBUG
+  assert((uintptr_t)ptr%sizeof(void*) == 0);
+#endif
 
   return ptr;
 }
@@ -119,7 +125,12 @@ PRED_IMPL("$new_findall_bag", 0, new_findall_bag, 0)
 
   if ( !LD->bags.bags )			/* outer one */
   { if ( !LD->bags.default_bag )
+    {
+#ifdef O_ATOMGC
+      simpleMutexInit(&LD->bags.mutex);
+#endif
       LD->bags.default_bag = PL_malloc(sizeof(*bag));
+    }
     bag = LD->bags.default_bag;
   } else
   { bag = PL_malloc(sizeof(*bag));
@@ -189,6 +200,8 @@ PRED_IMPL("$collect_findall_bag", 2, collect_findall_bag, 0)
 
     while ( (rp=topOfSegStack(&bag->answers)) )
     { Record r = *rp;
+      if (GD->atoms.gc_active)
+        markAtomsRecord(r);
       copyRecordToGlobal(answer, r, ALLOW_GC PASS_LD);
       PL_cons_list(list, answer, list);
       popTopOfSegStack(&bag->answers);
@@ -208,10 +221,18 @@ PRED_IMPL("$destroy_findall_bag", 0, destroy_findall_bag, 0)
 
   assert(bag);
   assert(bag->magic == FINDALL_MAGIC);
+
+#ifdef O_ATOMGC
+  simpleMutexLock(&LD->bags.mutex);
+#endif
+  LD->bags.bags = bag->parent;
+#ifdef O_ATOMGC
+  simpleMutexUnlock(&LD->bags.mutex);
+#endif
+
   bag->magic = 0;
   clearSegStack(&bag->answers);
   clear_mem_pool(&bag->records);
-  LD->bags.bags = bag->parent;
   if ( bag != LD->bags.default_bag )
     PL_free(bag);
 
@@ -233,10 +254,15 @@ markAtomsAnswers(void *data)
 
 void
 markAtomsFindall(PL_local_data_t *ld)
-{ findall_bag *bag = ld->bags.bags;
+{ findall_bag *bag;
 
-  for( ; bag; bag = bag->parent )
-    scanSegStack(&bag->answers, markAtomsAnswers);
+  if ( ld->bags.default_bag )
+  { simpleMutexLock(&ld->bags.mutex);
+    bag = ld->bags.bags;
+    for( ; bag; bag = bag->parent )
+      scanSegStack(&bag->answers, markAtomsAnswers);
+    simpleMutexUnlock(&ld->bags.mutex);
+  }
 }
 
 

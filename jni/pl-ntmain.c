@@ -1,11 +1,9 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2011, University of Amsterdam
+    Copyright (C): 1985-2013, University of Amsterdam
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -134,7 +132,7 @@ registerConsole(rlc_console c)
 
 
 void
-closeConsoles()
+closeConsoles(void)
 { int i;
   rlc_console *p;
 
@@ -160,11 +158,12 @@ static ssize_t
 Srlc_read(void *handle, char *buffer, size_t size)
 { rlc_console c = handle;
   size_t bytes;
+  int is_user_input = (Suser_input && Suser_input->handle == c);
+  term_t ex;
 
   PL_write_prompt(TRUE);
 
-  if ( Suser_input &&
-       Suser_input->handle == c &&
+  if ( is_user_input &&
        PL_ttymode(Suser_input) == PL_RAWTTY )
   { int chr = getkey(c);
     TCHAR *tbuf = (TCHAR*)buffer;
@@ -178,6 +177,11 @@ Srlc_read(void *handle, char *buffer, size_t size)
   } else
   { bytes = rlc_read(c, (TCHAR*)buffer, size/sizeof(TCHAR));
     bytes *= sizeof(TCHAR);
+  }
+
+  if ( is_user_input && (ex=PL_exception(0)) )
+  { Sset_exception(Suser_input, ex);
+    return -1;
   }
 
   if ( bytes == 0 || buffer[bytes-1] == '\n' )
@@ -195,6 +199,10 @@ The flushing code will remember `half'   characters  and re-send them as
 more data comes ready. This means however  that after a put_byte(X), the
 wchar_t stream is out-of-sync and produces   unreadable  output. We will
 therefore pad it with '?' characters to re-sync the stream.
+
+The downside of this is  that  Sputc()   and  Sputcode()  do not work on
+unbuffered streams and thus Serror  must   be  locked before using these
+functions.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 static ssize_t
@@ -730,8 +738,10 @@ free_interactor(void *closure)
 static void *
 run_interactor(void *closure)
 { predicate_t pred;
+  PL_thread_attr_t attr = {0};
 
-  PL_thread_attach_engine(NULL);
+  attr.flags = PL_THREAD_NO_DEBUG;
+  PL_thread_attach_engine(&attr);
   pthread_cleanup_push(free_interactor, NULL);
 
 
@@ -788,7 +798,8 @@ HiddenFrameClass()
   HINSTANCE instance = rlc_hinstance();
 
   if ( !winclassname[0] )
-  { _stprintf(winclassname, _T("SWI-Prolog-hidden-win%d"), instance);
+  { snwprintf(winclassname, sizeof(winclassname)/sizeof(TCHAR),
+	      _T("SWI-Prolog-hidden-win%d"), instance);
 
     wndClass.style		= 0;
     wndClass.lpfnWndProc	= (LPVOID) pl_wnd_proc;
@@ -946,7 +957,8 @@ set_window_title(rlc_console c)
   TCHAR *w64 = _T("");
 #endif
 
-  _stprintf(title, _T("SWI-Prolog (%s%sversion %d.%d.%d)"),
+  snwprintf(title, sizeof(title)/sizeof(TCHAR),
+	    _T("SWI-Prolog (%s%sversion %d.%d.%d)"),
 	    w64, mt, major, minor, patch);
 
   rlc_title(c, title, NULL, 0);
@@ -993,7 +1005,7 @@ install_readline(rlc_console c)
 
 static rlc_console main_console;
 
-static void
+static int
 closeWin(int s, void *a)
 { rlc_console c = a;
 
@@ -1003,6 +1015,8 @@ closeWin(int s, void *a)
   { main_console = NULL;
     rlc_close(c);
   }
+
+  return 0;
 }
 
 #define MAX_ARGC 100
@@ -1050,7 +1064,7 @@ win32main(rlc_console c, int argc, TCHAR **argv)
   initSignals();
 #endif
   PL_register_foreign_in_module("system", "win_open_console", 5,
-		      pl_win_open_console, 0);
+				pl_win_open_console, 0);
 
   if ( argc > MAX_ARGC )
     argc = MAX_ARGC;

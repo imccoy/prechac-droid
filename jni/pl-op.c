@@ -132,7 +132,7 @@ defOperator(Module m, atom_t name, int type, int priority, int force)
   assert(t>=OP_PREFIX && t<=OP_POSTFIX);
 
   if ( !force && !SYSTEM_MODE )
-  { if ( name == ATOM_comma || name == ATOM_nil || name == ATOM_curl ||
+  { if ( name == ATOM_comma ||
 	 (name == ATOM_bar && ((t&OP_MASK) != OP_INFIX ||
 			       (priority < 1001 && priority != 0))) )
     { GET_LD
@@ -392,7 +392,7 @@ addOpToBuffer(Buffer b, atom_t name, int type, int priority)
   opdef new;
 
   for(i = 0; i<mx; op++, i++)
-  { if ( op->name == name && op->type == type )
+  { if ( op->name == name && (op->type&OP_MASK) == (type&OP_MASK) )
       return;				/* got this one already */
   }
 
@@ -419,7 +419,7 @@ addOpsFromTable(Table t, atom_t name, int priority, int type, Buffer b)
 	assert(kind >= OP_PREFIX && kind <= OP_POSTFIX);
 
 	if ( op->priority[kind] < 0 ||
-	     op->type[kind] != type )
+	     (op->type[kind]&OP_MASK) != (type&OP_MASK) )
 	  continue;
 
 	if ( !priority ||
@@ -541,7 +541,10 @@ current_op(Module m, int inherit,
 	 PL_unify_integer(prec, match->priority) &&
 	 PL_unify_atom(type, operatorTypeToAtom(match->type)) )
     { if ( e->index == mx )
+      { discardBuffer(&e->buffer);
+        freeHeap(e, sizeof(*e));
 	return TRUE;
+      }
       ForeignRedoPtr(e);
     }
 

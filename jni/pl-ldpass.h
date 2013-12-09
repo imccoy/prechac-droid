@@ -34,7 +34,6 @@
 #define getOutputStream(t, k, s)	getOutputStream__LD(t, k, s PASS_LD)
 #define getTextOutputStream(t, s)	getTextOutputStream__LD(t, s PASS_LD)
 #define getBinaryOutputStream(t, s)	getBinaryOutputStream__LD(t, s PASS_LD)
-#define valFloat(w)		valFloat__LD(w PASS_LD)
 #define getCharsString(s, l)	getCharsString__LD(s, l PASS_LD)
 #define getCharsWString(s, l)	getCharsWString__LD(s, l PASS_LD)
 #define compileTermToHeap(t, f)	\
@@ -67,6 +66,7 @@
 #define PL_get_long(t, i)	PL_get_long__LD(t, i PASS_LD)
 #define PL_get_int64(t, i)	PL_get_int64__LD(t, i PASS_LD)
 #define PL_unify_number(t, n)	PL_unify_number__LD(t, n PASS_LD)
+#define PL_put_number(t, n)	PL_put_number__LD(t, n PASS_LD)
 #define PL_get_pointer(t, ptr)	PL_get_pointer__LD(t, ptr PASS_LD)
 #define PL_put_term(t1, t2)	PL_put_term__LD(t1, t2 PASS_LD)
 #define PL_get_functor(t, f)	PL_get_functor__LD(t, f PASS_LD)

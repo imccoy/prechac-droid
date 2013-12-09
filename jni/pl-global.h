@@ -64,10 +64,7 @@ typedef struct
 
 typedef struct
 { atom_t	file;			/* current source file */
-  int		line;			/* current line */
-  int		linepos;		/* position in the line */
-  int64_t	character;		/* current character location */
-  int64_t	byte;			/* byte offset of location */
+  IOPOS		position;		/* Line, line pos, char and byte */
 } source_location;
 
 		 /*******************************
@@ -82,6 +79,7 @@ struct PL_global_data
   int		initialised;		/* Heap is initialised */
   int		io_initialised;		/* I/O system has been initialised */
   cleanup_status cleaning;		/* Inside PL_cleanup() */
+  int		halt_cancelled;		/* Times halt was cancelled */
   int		bootsession;		/* -b boot compilation */
   int		debug_level;		/* Maintenance debugging: 0..9 */
   struct bit_vector *debug_topics;	/* debug topics enabled */
@@ -95,10 +93,10 @@ struct PL_global_data
 #endif
 
   struct
-  { int		argc;			/* main(int argc, char **argv) */
-    char **	argv;
-    int		_c_argc;		/* stripped options */
-    char **	_c_argv;
+  { int		os_argc;		/* main(int argc, char **argv) */
+    char **	os_argv;
+    int		appl_argc;		/* Application options */
+    char **	appl_argv;
     int		notty;			/* -tty: donot use ioctl() */
     int		optimise;		/* -O: optimised compilation */
   } cmdline;
@@ -131,6 +129,12 @@ struct PL_global_data
     double	thread_cputime;		/* Total CPU time of threads */
 #endif
   } statistics;
+
+#ifdef O_PROFILE
+  struct
+  { struct PL_local_data *thread;	/* Thread being profiled */
+  } profile;
+#endif
 
   struct
   { Module	user;			/* user module */
@@ -235,6 +239,7 @@ struct PL_global_data
     char *		fred;		/* last expanded ~user */
     char *		fredshome;	/* home of fred */
     OnHalt		on_halt_list;	/* list of onhalt hooks */
+    OnHalt		exit_hooks;	/* how to exit from PL_halt() */
     int			halting;	/* process is shutting down */
     int			gui_app;	/* Win32: Application is a gui app */
     IOFUNCTIONS		iofunctions;	/* initial IO functions */
@@ -256,6 +261,7 @@ struct PL_global_data
     Procedure	print_message2;
     Procedure	foreign_registered2;	/* $foreign_registered/2 */
     Procedure	prolog_trace_interception4;
+    Procedure	prolog_break_hook6;	/* prolog:break_hook/6 */
     Procedure	portray;		/* portray/1 */
     Procedure   dcall1;			/* $call/1 */
     Procedure   call3;			/* call/3*/
@@ -296,10 +302,7 @@ struct PL_global_data
   } terminal;
 #endif
 
-  struct alloc_pool alloc_pool;		/* Main allocation pool */
 #ifdef O_PLMT
-  FreeChunk	    left_over_pool;	/* Left-over from threads */
-
   struct
   { struct _at_exit_goal *exit_goals;	/* Global thread_at_exit/1 goals */
     int			enabled;	/* threads are enabled */
@@ -313,6 +316,13 @@ struct PL_global_data
     PL_thread_info_t  **threads;	/* Pointers to thread-info */
   } thread;
 #endif /*O_PLMT*/
+
+#ifdef O_LOCALE
+  struct
+  { Table		localeTable;	/* Name --> locale table */
+    PL_locale	       *default_locale;	/* System wide default */
+  } locale;
+#endif
 };
 
 
@@ -440,9 +450,11 @@ struct PL_local_data
     int		sum_ok;			/* siblings are counted */
     struct call_node *current;		/* `current' node */
     struct call_node *roots;		/* list of root-nodes */
+    uintptr_t	samples;		/* profile samples */
     uintptr_t	ticks;			/* profile ticks total */
     uintptr_t	accounting_ticks;	/* Ticks in profCall() and friends */
     uintptr_t	nodes;			/* #Recorded nodes */
+    double	time_at_last_tick;	/* Time at last statistics tick */
     double	time_at_start;		/* Time at last start */
     double	time;			/* recorded CPU time */
   } profile;
@@ -511,6 +523,9 @@ struct PL_local_data
   struct
   { struct findall_bag *bags;		/* Known bags */
     struct findall_bag *default_bag;	/* Bag we keep around */
+#ifdef O_ATOMGC
+    simpleMutex mutex;			/* Atom GC scanning synchronization */
+#endif
   } bags;
 
   struct
@@ -559,8 +574,12 @@ struct PL_local_data
     struct _at_exit_goal *exit_goals;	/* thread_at_exit/1 goals */
     DefinitionChain local_definitions;	/* P_THREAD_LOCAL predicates */
   } thread;
+#endif
 
-  struct alloc_pool alloc_pool;		/* Thread allocation pool */
+#ifdef O_LOCALE
+  struct
+  { PL_locale *current;			/* Current locale */
+  } locale;
 #endif
 
   struct
@@ -615,10 +634,10 @@ GLOBAL PL_local_data_t *PL_current_engine_ptr;
 #define environment_frame	(LD->environment)
 #define fli_context		(LD->foreign_environment)
 #define source_file_name	(LD->read_source.file)
-#define source_line_no		(LD->read_source.line)
-#define source_line_pos		(LD->read_source.linepos)
-#define source_char_no		(LD->read_source.character)
-#define source_byte_no		(LD->read_source.byte)
+#define source_line_no		(LD->read_source.position.lineno)
+#define source_line_pos		(LD->read_source.position.linepos)
+#define source_char_no		(LD->read_source.position.charno)
+#define source_byte_no		(LD->read_source.position.byteno)
 #define exception_term		(LD->exception.term)
 #define exception_bin		(LD->exception.bin)
 #define exception_printed	(LD->exception.printed)

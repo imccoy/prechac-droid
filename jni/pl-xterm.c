@@ -22,7 +22,7 @@
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__GLIBC__) || defined(__GNU__)
 #define _XOPEN_SOURCE 600
 #endif
 
@@ -209,7 +209,8 @@ pl_open_xterm(term_t title, term_t in, term_t out, term_t err)
     return PL_error(NULL, 0, MSG_ERRNO, ERR_SYSCALL, "posix_openpt");
 #else
   if ( (master = open("/dev/ptmx", O_RDWR)) < 0 )
-  { term_t file = PL_new_term_ref();
+  { GET_LD
+    term_t file = PL_new_term_ref();
 
     PL_put_atom_chars(file, "/dev/ptmx");
     return PL_error(NULL, 0, NULL, ERR_FILE_OPERATION,

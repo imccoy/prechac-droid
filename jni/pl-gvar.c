@@ -204,8 +204,32 @@ auto_define_gvar(atom_t name)
 }
 
 
+/* gvar_value__LD() is a quick and dirty way to get a global variable.
+   It is used to get '$variable_names' for compiler warnings.
+
+   Note that this function does *not* call auto_define_gvar().  This
+   is on purpose because we cannot call Prolog from the compiler and
+   there is no need for this hook for this variable.  Be careful to
+   fix this if this function is to be used for other purposes.
+*/
+
+int
+gvar_value__LD(atom_t name, Word p ARG_LD)
+{ if ( LD->gvar.nb_vars )
+  { Symbol s = lookupHTable(LD->gvar.nb_vars, (void*)name);
+
+    if ( s )
+    { *p = (word)s->value;
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+
 static int
-getval(term_t var, term_t value ARG_LD)
+getval(term_t var, term_t value, int raise_error ARG_LD)
 { atom_t name;
   int i;
 
@@ -245,8 +269,11 @@ getval(term_t var, term_t value ARG_LD)
   }
 
 error:
-  return PL_error(NULL, 0, NULL, ERR_EXISTENCE,
-		  ATOM_variable, var);
+  if ( raise_error )
+    return PL_error(NULL, 0, NULL, ERR_EXISTENCE,
+		    ATOM_variable, var);
+  else
+    return FALSE;
 }
 
 
@@ -262,7 +289,7 @@ static
 PRED_IMPL("nb_getval", 2, nb_getval, 0)
 { PRED_LD
 
-  return getval(A1, A2 PASS_LD);
+  return getval(A1, A2, TRUE PASS_LD);
 }
 
 
@@ -277,7 +304,7 @@ static
 PRED_IMPL("b_getval", 2, b_getval, 0)
 { PRED_LD
 
-  return getval(A1, A2 PASS_LD);
+  return getval(A1, A2, TRUE PASS_LD);
 }
 
 
@@ -311,6 +338,10 @@ PRED_IMPL("nb_current", 2, nb_current, PL_FA_NONDETERMINISTIC)
 
   switch( CTX_CNTRL )
   { case FRG_FIRST_CALL:
+      if ( PL_is_atom(A1) )
+	return getval(A1, A2, FALSE PASS_LD);
+      if ( !PL_is_variable(A1) )
+	return PL_type_error("atom", A1);
       if ( LD->gvar.nb_vars )
       { e = newTableEnum(LD->gvar.nb_vars);
 	break;

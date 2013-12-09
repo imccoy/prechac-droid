@@ -1,11 +1,9 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2011, University of Amsterdam
+    Copyright (C): 1985-2012, University of Amsterdam
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -97,7 +95,7 @@ destroyHTable(Table ht)
   if ( ht->mutex )
   { simpleMutexDelete(ht->mutex);
     freeHeap(ht->mutex, sizeof(*ht->mutex));
-	ht->mutex = NULL;
+    ht->mutex = NULL;
   }
 #endif
 
@@ -111,13 +109,15 @@ destroyHTable(Table ht)
 static int lookups;
 static int cmps;
 
-void
+int
 exitTables(int status, void *arg)
 { (void)status;
   (void)arg;
 
   Sdprintf("hashstat: Anonymous tables: %d lookups using %d compares\n",
 	   lookups, cmps);
+
+  return 0;
 }
 #endif
 
@@ -288,6 +288,9 @@ deleteSymbolHTable(Table ht, Symbol s)
   { if ( *h == s )
     { *h = (*h)->next;
 
+      s->next = NULL;				/* force crash */
+      s->name = NULL;
+      s->value = NULL;
       freeHeap(s, sizeof(struct symbol));
       ht->size--;
 

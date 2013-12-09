@@ -1,11 +1,10 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
-    E-mail:        wielemak@science.uva.nl
+    E-mail:        J.Wielemaker@vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2007, University of Amsterdam
+    Copyright (C): 1985-2013, University of Amsterdam
+			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -44,8 +43,7 @@ is supposed to give the POSIX standard one.
 #include "pl-incl.h"
 #include "pl-ctype.h"
 #include "pl-utf8.h"
-#undef abs
-#include <math.h>		/* avoid abs() problem with msvc++ */
+#include <math.h>
 #include <stdio.h>		/* rename() and remove() prototypes */
 
 #if TIME_WITH_SYS_TIME
@@ -363,7 +361,7 @@ CpuCount()
 #include <sys/sysctl.h>
 
 int
-CpuCount()
+CpuCount(void)
 { int     count ;
   size_t  size=sizeof(count) ;
 
@@ -389,7 +387,7 @@ setOSPrologFlags(void)
 { int cpu_count = CpuCount();
 
   if ( cpu_count > 0 )
-    PL_set_prolog_flag("cpu_count", PL_INTEGER|FF_READONLY, cpu_count);
+    PL_set_prolog_flag("cpu_count", PL_INTEGER, cpu_count);
 }
 #endif
 
@@ -800,7 +798,7 @@ OsPath(const char *p, char *buf)
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #if defined(HAVE_SYMLINKS) && (defined(HAVE_STAT) || defined(__unix__))
-#define O_CANONISE_DIRS
+#define O_CANONICALISE_DIRS
 
 struct canonical_dir
 { char *	name;			/* name of directory */
@@ -812,13 +810,13 @@ struct canonical_dir
 
 #define canonical_dirlist (GD->os._canonical_dirlist)
 
-forwards char   *canoniseDir(char *);
-#endif /*O_CANONISE_DIRS*/
+forwards char   *canonicaliseDir(char *);
+#endif /*O_CANONICALISE_DIRS*/
 
 static void
 initExpand(void)
 {
-#ifdef O_CANONISE_DIRS
+#ifdef O_CANONICALISE_DIRS
   char *dir;
   char *cpaths;
 #endif
@@ -826,7 +824,7 @@ initExpand(void)
   GD->paths.CWDdir = NULL;
   GD->paths.CWDlen = 0;
 
-#ifdef O_CANONISE_DIRS
+#ifdef O_CANONICALISE_DIRS
 { char envbuf[MAXPATHLEN];
 
   if ( (cpaths = Getenv("CANONICAL_PATHS", envbuf, sizeof(envbuf))) )
@@ -841,22 +839,22 @@ initExpand(void)
 	strncpy(buf, cpaths, l);
 	buf[l] = EOS;
 	cpaths += l+1;
-	canoniseDir(buf);
+	canonicaliseDir(buf);
       } else
-      { canoniseDir(cpaths);
+      { canonicaliseDir(cpaths);
 	break;
       }
     }
   }
 
-  if ( (dir = Getenv("HOME", envbuf, sizeof(envbuf))) ) canoniseDir(dir);
-  if ( (dir = Getenv("PWD",  envbuf, sizeof(envbuf))) ) canoniseDir(dir);
-  if ( (dir = Getenv("CWD",  envbuf, sizeof(envbuf))) ) canoniseDir(dir);
+  if ( (dir = Getenv("HOME", envbuf, sizeof(envbuf))) ) canonicaliseDir(dir);
+  if ( (dir = Getenv("PWD",  envbuf, sizeof(envbuf))) ) canonicaliseDir(dir);
+  if ( (dir = Getenv("CWD",  envbuf, sizeof(envbuf))) ) canonicaliseDir(dir);
 }
 #endif
 }
 
-#ifdef O_CANONISE_DIRS
+#ifdef O_CANONICALISE_DIRS
 
 static void
 cleanupExpand(void)
@@ -963,12 +961,12 @@ verify_entry(CanonicalDir d)
 
 
 static char *
-canoniseDir(char *path)
+canonicaliseDir(char *path)
 { CanonicalDir d, next;
   statstruct buf;
   char tmp[MAXPATHLEN];
 
-  DEBUG(1, Sdprintf("canoniseDir(%s) --> ", path));
+  DEBUG(1, Sdprintf("canonicaliseDir(%s) --> ", path));
 
   for(d = canonical_dirlist; d; d = next)
   { next = d->next;
@@ -1044,21 +1042,20 @@ canoniseDir(char *path)
 
 #else
 
-#define canoniseDir(d)
+#define canonicaliseDir(d)
 
 static void
 cleanupExpand(void)
 {
 }
 
-#endif /*O_CANONISE_DIRS*/
+#endif /*O_CANONICALISE_DIRS*/
 
 
 char *
-canoniseFileName(char *path)
+canonicaliseFileName(char *path)
 { char *out = path, *in = path, *start = path;
-  char *osave[100];
-  int  osavep = 0;
+  tmp_buffer saveb;
 
 #ifdef O_HASDRIVES			/* C: */
   if ( in[1] == ':' && isLetter(in[0]) )
@@ -1082,7 +1079,7 @@ canoniseFileName(char *path)
   if ( in[0] == '/' && in[1] == '/' && isAlpha(in[2]) )
   { char *s;
 
-    for(s = in+3; *s && (isAlpha(*s) || *s == '.'); s++)
+    for(s = in+3; *s && (isAlpha(*s) || *s == '-' || *s == '.'); s++)
       ;
     if ( *s == '/' )
     { in = out = s+1;
@@ -1097,7 +1094,8 @@ canoniseFileName(char *path)
     in += 2;
   if ( in[0] == '/' )
     *out++ = '/';
-  osave[osavep++] = out;
+  initBuffer(&saveb);
+  addBuffer(&saveb, out, char*);
 
   while(*in)
   { if (*in == '/')
@@ -1113,15 +1111,15 @@ canoniseFileName(char *path)
 	  }
 	  if ( in[2] == EOS )		/* delete trailing /. */
 	  { *out = EOS;
-	    return path;
+	    goto out;
 	  }
 	  if ( in[2] == '.' && (in[3] == '/' || in[3] == EOS) )
-	  { if ( osavep > 0 )		/* delete /foo/../ */
-	    { out = osave[--osavep];
+	  { if ( !isEmptyBuffer(&saveb) )		/* delete /foo/../ */
+	    { out = popBuffer(&saveb, char*);
 	      in += 3;
 	      if ( in[0] == EOS && out > start+1 )
 	      { out[-1] = EOS;		/* delete trailing / */
-		return path;
+		goto out;
 	      }
 	      goto again;
 	    } else if (	start[0] == '/' && out == start+1 )
@@ -1135,11 +1133,14 @@ canoniseFileName(char *path)
 	in++;
       if ( out > path && out[-1] != '/' )
 	*out++ = '/';
-      osave[osavep++] = out;
+      addBuffer(&saveb, out, char*);
     } else
       *out++ = *in++;
   }
   *out++ = *in++;
+
+out:
+  discardBuffer(&saveb);
 
   return path;
 }
@@ -1165,15 +1166,15 @@ utf8_strlwr(char *s)
 
 
 char *
-canonisePath(char *path)
+canonicalisePath(char *path)
 { GET_LD
 
   if ( !truePrologFlag(PLFLAG_FILE_CASE) )
     utf8_strlwr(path);
 
-  canoniseFileName(path);
+  canonicaliseFileName(path);
 
-#ifdef O_CANONISE_DIRS
+#ifdef O_CANONICALISE_DIRS
 { char *e;
   char dirname[MAXPATHLEN];
   size_t plen = strlen(path);
@@ -1184,7 +1185,7 @@ canonisePath(char *path)
       ;
     strncpy(dirname, path, e-path);
     dirname[e-path] = EOS;
-    canoniseDir(dirname);
+    canonicaliseDir(dirname);
     strcat(dirname, e);
     strcpy(path, dirname);
   }
@@ -1451,7 +1452,7 @@ AbsoluteFile(const char *spec, char *path)
   if ( IsAbsolutePath(file) )
   { strcpy(path, file);
 
-    return canonisePath(path);
+    return canonicalisePath(path);
   }
 
 #ifdef O_HASDRIVES
@@ -1463,7 +1464,7 @@ AbsoluteFile(const char *spec, char *path)
     path[0] = GetCurrentDriveLetter();
     path[1] = ':';
     strcpy(&path[2], file);
-    return canonisePath(path);
+    return canonicalisePath(path);
   }
 #endif /*O_HASDRIVES*/
 
@@ -1476,12 +1477,9 @@ AbsoluteFile(const char *spec, char *path)
   }
 
   strcpy(path, GD->paths.CWDdir);
-  if ( file[0] != EOS )
-    strcpy(&path[GD->paths.CWDlen], file);
-  if ( strchr(file, '.') || strchr(file, '/') )
-    return canonisePath(path);
-  else
-    return path;
+  strcpy(&path[GD->paths.CWDlen], file);
+
+  return canonicalisePath(path);
 }
 
 
@@ -1529,7 +1527,7 @@ to be implemented directly.  What about other Unixes?
       return NULL;
     }
 
-    canonisePath(buf);
+    canonicalisePath(buf);
     GD->paths.CWDlen = strlen(buf);
     buf[GD->paths.CWDlen++] = '/';
     buf[GD->paths.CWDlen] = EOS;

@@ -1,11 +1,10 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
-    E-mail:        wielemak@science.uva.nl
+    E-mail:        J.Wielemaker@vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2007, University of Amsterdam
+    Copyright (C): 1985-2012, University of Amsterdam
+			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -53,7 +52,7 @@ Link all foreign language predicates.  The arguments to FRG are:
 Flags almost always is TRACE_ME.  Additional common flags:
 
 	P_TRANSPARENT		Predicate is module transparent
-	NONDETERMINISTIC	Predicate can be resatisfied
+	P_NONDET	Predicate can be resatisfied
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #define NOTRACE PL_FA_NOTRACE
@@ -78,7 +77,6 @@ static const PL_extension foreigns[] = {
   FRG("getenv",			2, pl_getenv,			0),
   FRG("setenv",			2, pl_setenv,			0),
   FRG("unsetenv",		1, pl_unsetenv,			0),
-  FRG("$apropos_match",		2, pl_apropos_match,		0),
   FRG("sub_atom",		5, pl_sub_atom,		 NDET|ISO),
   FRG("sleep",			1, pl_sleep,			0),
   FRG("break",			0, pl_break,			0),
@@ -92,14 +90,10 @@ static const PL_extension foreigns[] = {
   FRG("writeln",		1, pl_writeln,		        0),
   FRG("print",			1, pl_print,			0),
 
-  FRG("read_term",		2, pl_read_term,	      ISO),
-  FRG("read_term",		3, pl_read_term3,	      ISO),
   FRG("read",			1, pl_read,		      ISO),
   FRG("$raw_read",		1, pl_raw_read,			0),
   FRG("$raw_read",		2, pl_raw_read2,		0),
   FRG("current_functor",	2, pl_current_functor,	     NDET),
-  FRG("$complete_atom",		3, pl_complete_atom,		0),
-  FRG("$atom_completions",	2, pl_atom_completions,		0),
   FRG("char_conversion",	2, pl_char_conversion,	      ISO),
   FRG("current_char_conversion",2, pl_current_char_conversion, NDET|ISO),
 
@@ -325,11 +319,11 @@ registerBuiltins(const PL_extension *f)
 
     PL_unregister_atom(name);
     def = lookupProcedure(fdef, m)->definition;
-    set(def, FOREIGN|SYSTEM|HIDE_CHILDS|LOCKED);
+    set(def, P_FOREIGN|HIDE_CHILDS|P_LOCKED);
 
     if ( f->flags & PL_FA_NOTRACE )	     clear(def, TRACE_ME);
     if ( f->flags & PL_FA_TRANSPARENT )	     set(def, P_TRANSPARENT);
-    if ( f->flags & PL_FA_NONDETERMINISTIC ) set(def, NONDETERMINISTIC);
+    if ( f->flags & PL_FA_NONDETERMINISTIC ) set(def, P_NONDET);
     if ( f->flags & PL_FA_VARARGS )	     set(def, P_VARARG);
     if ( f->flags & PL_FA_CREF )	     set(def, P_FOREIGN_CREF);
     if ( f->flags & PL_FA_ISO )		     set(def, P_ISO);
@@ -385,6 +379,7 @@ DECL_PLIST(termhash);
 DECL_PLIST(dde);
 //DECL_PLIST(term);
 DECL_PLIST(debug);
+DECL_PLIST(locale);
 
 void
 initBuildIns(void)
@@ -437,6 +432,9 @@ initBuildIns(void)
   REG_PLIST(win);
   REG_PLIST(dde);
 #endif
+#ifdef O_LOCALE
+  REG_PLIST(locale);
+#endif
   REG_PLIST(debug);
 
 #define LOOKUPPROC(name) \
@@ -466,7 +464,7 @@ initBuildIns(void)
 	PL_predicate("prolog_exception_hook", 4, "user");
 					/* allow debugging in call/1 */
   clear(PROCEDURE_dcall1->definition, HIDE_CHILDS|TRACE_ME);
-  set(PROCEDURE_dcall1->definition, DYNAMIC|SYSTEM);
+  set(PROCEDURE_dcall1->definition, P_DYNAMIC|P_LOCKED);
 
   PL_meta_predicate(PL_predicate("assert",           1, "system"), ":");
   PL_meta_predicate(PL_predicate("asserta",          1, "system"), ":");
@@ -491,6 +489,7 @@ initBuildIns(void)
   PL_meta_predicate(PL_predicate("thread_signal",    2, "system"), "+0");
 #endif
   PL_meta_predicate(PL_predicate("prolog_frame_attribute", 3, "system"), "++:");
+  PL_meta_predicate(PL_predicate("compile_predicates", 1, "system"), ":");
 
   for( ecell = ext_head; ecell; ecell = ecell->next )
     bindExtensions(ecell->module, ecell->extensions);

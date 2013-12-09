@@ -1,11 +1,10 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2009, University of Amsterdam
+    Copyright (C): 1985-2012, University of Amsterdam
+			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -122,6 +121,9 @@ typedef struct message_queue
   unsigned	initialized : 1;	/* Queue is initialised */
   unsigned	destroyed : 1;		/* Thread is being destroyed */
   unsigned	type : 2;		/* QTYPE_* */
+#ifdef O_ATOMGC
+  simpleMutex          gc_mutex;	/* Atom GC scanning sychronization */
+#endif
 } message_queue;
 
 typedef struct pl_mutex
@@ -142,21 +144,26 @@ extern counting_mutex _PL_mutexes[];	/* Prolog mutexes */
 #define L_FUNCTOR	4
 #define L_RECORD	5
 #define L_THREAD	6
-#define L_PREDICATE	7
-#define L_MODULE	8
-#define L_TABLE		9
-#define L_BREAK	       10
-#define L_FILE	       11
-#define L_PLFLAG       12
-#define L_OP	       13
-#define L_INIT	       14
-#define L_TERM	       15
-#define L_GC	       16
-#define L_AGC	       17
-#define L_FOREIGN      18
-#define L_OS	       19
+#define L_MUTEX		7
+#define L_PREDICATE	8
+#define L_MODULE	9
+#define L_TABLE	       10
+#define L_BREAK	       11
+#define L_FILE	       12
+#define L_SEETELL      13
+#define L_PLFLAG       14
+#define L_OP	       15
+#define L_INIT	       16
+#define L_TERM	       17
+#define L_GC	       18
+#define L_AGC	       19
+#define L_STOPTHEWORLD 20
+#define L_FOREIGN      21
+#define L_OS	       22
+#define L_LOCALE       23
 #ifdef __WINDOWS__
-#define L_DDE	       20
+#define L_DDE	       24
+#define L_CSTACK       25
 #endif
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -216,7 +223,7 @@ compile-time
 	if ( GD->thread.enabled ) \
 	{ if ( def->mutex ) \
 	  { countingMutexLock(def->mutex); \
-	  } else if ( false(def, DYNAMIC) ) \
+	  } else if ( false(def, P_DYNAMIC) ) \
 	  { countingMutexLock(&_PL_mutexes[L_PREDICATE]); \
 	  } \
 	}
@@ -225,7 +232,7 @@ compile-time
 	if ( GD->thread.enabled ) \
 	{ if ( def->mutex ) \
 	  { countingMutexUnlock(def->mutex); \
-	  } else if ( false(def, DYNAMIC) ) \
+	  } else if ( false(def, P_DYNAMIC) ) \
 	  { countingMutexUnlock(&_PL_mutexes[L_PREDICATE]); \
 	  } \
 	}
@@ -328,7 +335,6 @@ COMMON(foreign_t)	pl_mutex_unlock_all(void);
 COMMON(const char *)	threadName(int id);
 COMMON(void)		executeThreadSignals(int sig);
 COMMON(foreign_t)	pl_attach_xterm(term_t in, term_t out);
-COMMON(size_t)		threadLocalHeapUsed(void);
 COMMON(int)		attachConsole(void);
 COMMON(Definition)	localiseDefinition(Definition def);
 COMMON(LocalDefinitions) new_ldef_vector(void);
@@ -347,6 +353,8 @@ COMMON(double)	        ThreadCPUTime(PL_local_data_t *ld, int which);
 		 *******************************/
 
 COMMON(void)	forThreadLocalData(void (*func)(struct PL_local_data *),
+				   unsigned flags);
+COMMON(void)	forThreadLocalDataUnsuspended(void (*func)(struct PL_local_data *),
 				   unsigned flags);
 COMMON(void)	resumeThreads(void);
 COMMON(void)	markAtomsMessageQueues(void);

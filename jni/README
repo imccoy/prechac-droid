@@ -1,5 +1,5 @@
 This folder is mostly the .c and .h files from swi-prolog's src/ directory, as
-at revision 8c768b7310a97c0927d4297d09243155b9461da5.
+at version 6.6 (revision a49fce60377948cb383d1abb5059da866b47c812).
 
 It includes .ic and .ih files resulting from a compilation run. The config.h was
 initially generated, but then altered as neccessary.

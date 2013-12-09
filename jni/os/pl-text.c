@@ -272,9 +272,12 @@ PL_get_text__LD(term_t l, PL_chars_t *text, int flags ARG_LD)
     encodings[1] = ENC_WCHAR;
     encodings[2] = ENC_UNKNOWN;
 
-    wflags = ((flags&CVT_WRITE_CANONICAL)
-		? PL_WRT_QUOTED|PL_WRT_IGNOREOPS|PL_WRT_NUMBERVARS
-		: PL_WRT_NUMBERVARS);
+    if ( (flags&CVT_WRITEQ) == CVT_WRITEQ )
+      wflags = PL_WRT_QUOTED|PL_WRT_NUMBERVARS;
+    else if ( (flags&CVT_WRITE_CANONICAL) )
+      wflags = PL_WRT_QUOTED|PL_WRT_IGNOREOPS|PL_WRT_NUMBERVARS;
+    else
+      wflags = PL_WRT_NUMBERVARS;
 
     for(enc = encodings; *enc != ENC_UNKNOWN; enc++)
     { size_t size;
@@ -345,7 +348,7 @@ error:
 
 atom_t
 textToAtom(PL_chars_t *text)
-{ if ( !PL_canonise_text(text) )
+{ if ( !PL_canonicalise_text(text) )
     return 0;
 
   if ( text->encoding == ENC_ISO_LATIN_1 )
@@ -358,7 +361,7 @@ textToAtom(PL_chars_t *text)
 
 word
 textToString(PL_chars_t *text)
-{ if ( !PL_canonise_text(text) )
+{ if ( !PL_canonicalise_text(text) )
     return 0;
 
   if ( text->encoding == ENC_ISO_LATIN_1 )
@@ -832,7 +835,7 @@ rep_error:
 
 
 int
-PL_canonise_text(PL_chars_t *text)
+PL_canonicalise_text(PL_chars_t *text)
 { if ( !text->canonical )
   { switch(text->encoding )
     { case ENC_ISO_LATIN_1:

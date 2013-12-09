@@ -624,7 +624,7 @@ jni_env() /* economically gets a JNIEnv pointer, valid for this thread */
       return env;
     case JNI_EDETACHED:
       DEBUG(2, Sdprintf( "[JPL: jni_env() calls AttachCurrentThread]\n"));
-      return (*jvm)->AttachCurrentThread(jvm, &env, NULL) == 0 ? env : NULL;
+      return (*jvm)->AttachCurrentThread(jvm, (void**)&env, NULL) == 0 ? env : NULL;
     default: /* error */
       return NULL;
   }
@@ -3937,6 +3937,7 @@ setIntValue(
     }
 
 
+#if 0
 /*-----------------------------------------------------------------------
  * setInt64Value
  *
@@ -3961,6 +3962,7 @@ static bool
 			)
 		;
 	}
+#endif
 
 
 /*-----------------------------------------------------------------------
@@ -4569,7 +4571,7 @@ JNIEXPORT jboolean JNICALL
 		&&	jint64_holder != NULL
 		&&	getUIntPtrValue(env,jterm,&term)				/* confirms that jterm isn't null */
 		&&	PL_get_int64(term,&i64)
-		&&	setInt64Value(env,jint64_holder,i64)
+		&&	setLongValue(env,jint64_holder,i64)
 	;
     }
 

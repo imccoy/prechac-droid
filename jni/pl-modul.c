@@ -1,11 +1,10 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
-    E-mail:        J.Wielemaker@uva.nl
+    E-mail:        J.Wielemaker@vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2009, University of Amsterdam
+    Copyright (C): 1985-2012, University of Amsterdam
+			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -72,7 +71,7 @@ _lookupModule(atom_t name)
   m->mutex = allocSimpleMutex(PL_atom_chars(m->name));
 #endif
   clearFlags(m);
-  set(m, CHARESCAPE);
+  set(m, M_CHARESCAPE);
 
   if ( name == ATOM_user || name == ATOM_system )
     m->procedures = newHTable(PROCEDUREHASHSIZE);
@@ -87,11 +86,11 @@ _lookupModule(atom_t name)
   if ( name == ATOM_user )
   { super = MODULE_system;
   } else if ( name == ATOM_system )
-  { set(m, SYSTEM|UNKNOWN_ERROR);
+  { set(m, M_SYSTEM|UNKNOWN_ERROR);
     super = NULL;
     m->class = ATOM_system;
   } else if ( stringAtom(name)[0] == '$' )
-  { set(m, SYSTEM);
+  { set(m, M_SYSTEM);
     super = MODULE_system;
     m->class = ATOM_system;
   } else
@@ -805,63 +804,106 @@ pl_set_prolog_hook(term_t module, term_t old, term_t new)
 #endif
 
 
+typedef struct defm_target
+{ term_t    pi;				/* user supplied predicate indicator */
+  functor_t functor;			/* functor associated to the above */
+} defm_target;
+
+
 static int
-find_modules_with_def(Module m, functor_t fdef,
-		      term_t h, term_t t,
-		      int l ARG_LD)
-{ Procedure proc;
-  ListCell c;
+find_modules_with_defs(Module m, int count, defm_target targets[],
+		       term_t tmp, term_t mlist,
+		       int l ARG_LD)
+{ ListCell c;
+  int i;
+  int found = FALSE;
+  term_t mhead = tmp+0;
+  term_t plist = tmp+1;
+  term_t phead = tmp+2;
 
   DEBUG(9, Sdprintf("Trying %s\n", PL_atom_chars(m->name)));
 
   if ( l < 0 )
   { sysError("OOPS loop in default modules???\n");
-    fail;
+    return FALSE;
   }
 
-  if ( (proc = isCurrentProcedure(fdef, m)) &&
-       proc->definition->impl.any )
-  { if ( !(PL_unify_list(t, h, t) &&
-	   PL_unify_atom(h, m->name)) )
-      fail;
+  for(i=0; i<count; i++)
+  { Procedure proc;
+
+    if ( (proc = isCurrentProcedure(targets[i].functor, m)) &&
+	 proc->definition->impl.any )
+    { if ( !found )
+      { found = TRUE;
+	PL_put_variable(plist);
+	if ( !PL_unify_list(mlist, mhead, mlist) ||
+	     !PL_unify_term(mhead, PL_FUNCTOR, FUNCTOR_minus2,
+			             PL_ATOM, m->name,
+				     PL_TERM, plist) )
+	  return FALSE;
+      }
+
+      if ( !PL_unify_list(plist, phead, plist) ||
+	   !PL_unify(phead, targets[i].pi) )
+	return FALSE;
+    }
   }
+  if ( found && !PL_unify_nil(plist) )
+    return FALSE;
 
   for(c = m->supers; c; c=c->next)
   { Module s = c->value;
 
-    if ( !find_modules_with_def(s, fdef, h, t, l-1 PASS_LD) )
-      fail;
+    if ( !find_modules_with_defs(s, count, targets, tmp, mlist, l-1 PASS_LD) )
+      return FALSE;
   }
 
-  succeed;
+  return TRUE;
 }
 
 
-/** '$def_modules'(:PI, -Modules) is det.
+/** '$def_modules'(:list(PI), -list(Pair)) is det.
 
-Modules is unified with a list of modules   that define PI and appear in
-the import modules of the original module.  Search starts in the current
-source module if PI is not qualified.  Only   modules  in which PI has a
-real definition are returned  (i.e.,  _not_   modules  where  PI is only
+Each Pair is a  pair  Module-list(PI),   where  Module:PI  is  a defined
+predicate in a the starting module or   a default module thereof. If the
+first argument is qualified, this  is   the  starting  module. Else, the
+default source module is the starting module.   Only modules in which PI
+has a real definition are returned (i.e., _not_ modules where PI is only
 defined as dynamic or multifile.
 
 @see	boot/expand.pl uses this to find relevant modules that define
-	term_expansion/2 and/or goal_expansion/2 definitions.
+	term_expansion/2,4 and/or goal_expansion/2,4 definitions.
 */
+
+#define MAX_TARGETS 10
 
 static
 PRED_IMPL("$def_modules", 2, def_modules, PL_FA_TRANSPARENT)
 { PRED_LD
   Module m = LD->modules.source;
-  functor_t fdef;
-  term_t head = PL_new_term_ref();
-  term_t tail = PL_copy_term_ref(A2);
+  defm_target targets[MAX_TARGETS];
+  int tcount = 0;
+  term_t ttail = PL_new_term_ref();
+  term_t tmp   = PL_new_term_refs(3);
+  term_t tail  = PL_copy_term_ref(A2);
+  term_t thead = tmp+0;
 
-  if ( !get_functor(A1, &fdef, &m, 0, GF_PROCEDURE) )
-    fail;
+  if ( !PL_strip_module(A1, &m, ttail) )
+    return FALSE;
 
-  if ( !find_modules_with_def(m, fdef, head, tail, 100 PASS_LD) )
-    fail;
+  while( PL_get_list_ex(ttail, thead, ttail) )
+  { if ( !get_functor(thead, &targets[tcount].functor,
+		      NULL, 0, GF_PROCEDURE|GP_NOT_QUALIFIED) )
+      return FALSE;
+    targets[tcount].pi = PL_copy_term_ref(thead);
+    if ( tcount++ > MAX_TARGETS )
+      return PL_resource_error("target_predicates");
+  }
+  if ( !PL_get_nil_ex(ttail) )
+    return FALSE;
+
+  if ( !find_modules_with_defs(m, tcount, targets, tmp, tail, 100 PASS_LD) )
+    return FALSE;
 
   return PL_unify_nil(tail);
 }
@@ -910,7 +952,7 @@ declareModule(atom_t name, atom_t class, atom_t super,
 	    { Procedure proc = s->value;
 	      Definition def = proc->definition;
 	      if ( /*def->module == module &&*/
-		   !true(def, DYNAMIC|MULTIFILE|FOREIGN) )
+		   !true(def, P_DYNAMIC|P_MULTIFILE|P_FOREIGN) )
 	      { if ( def->module == module &&
 		     hasClausesDefinition(def) )
 		{ if ( !rdef )

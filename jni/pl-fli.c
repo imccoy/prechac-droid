@@ -1,11 +1,9 @@
-/*  $Id$
-
-    Part of SWI-Prolog
+/*  Part of SWI-Prolog
 
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2011, University of Amsterdam
+    Copyright (C): 1985-2012, University of Amsterdam
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -382,6 +380,9 @@ PL_new_atom_nchars(size_t len, const char *s)
 { if ( !GD->initialised )
     initAtoms();
 
+  if ( len == (size_t)-1 )
+    len = strlen(s);
+
   return (atom_t) lookupAtom(s, len);
 }
 
@@ -430,7 +431,7 @@ static PL_blob_t ucs_atom =
 
 
 static void
-initUCSAtoms()
+initUCSAtoms(void)
 { PL_register_blob_type(&ucs_atom);
 }
 
@@ -456,6 +457,9 @@ PL_new_atom_wchars(size_t len, const wchar_t *s)
 
   if ( !GD->initialised )
     initAtoms();
+
+  if ( len == (size_t)-1 )
+    len = wcslen(s);
 
   txt.text.w    = (wchar_t*)s;
   txt.length    = len;
@@ -645,6 +649,20 @@ PL_atom_wchars(atom_t a, size_t *len)
       *len = x->length / sizeof(pl_wchar_t);
 
     return (const wchar_t *)x->name;
+  } else if ( true(x->type, PL_BLOB_TEXT) )
+  { Buffer b = findBuffer(BUF_RING);
+    const char *s = (const char*)x->name;
+    const char *e = &s[x->length];
+
+    for(; s<e; s++)
+    { addBuffer(b, *s, wchar_t);
+    }
+    addBuffer(b, 0, wchar_t);
+
+    if ( len )
+      *len = x->length;
+
+    return baseBuffer(b, const wchar_t);
   } else
     return NULL;
 }
@@ -878,7 +896,7 @@ PL_cons_functor(term_t h, functor_t fd, ...)
     { int rc;
 
       if ( (rc=ensureGlobalSpace(1+arity, ALLOW_GC)) != TRUE )
-	return FALSE;
+	return raiseStackOverflow(rc);
     }
 
     a = t = gTop;
@@ -912,7 +930,7 @@ PL_cons_functor_v(term_t h, functor_t fd, term_t a0)
     { int rc;
 
       if ( (rc=ensureGlobalSpace(1+arity, ALLOW_GC)) != TRUE )
-	return FALSE;
+	return raiseStackOverflow(rc);
     }
 
     a = t = gTop;
@@ -938,7 +956,7 @@ PL_cons_list__LD(term_t l, term_t head, term_t tail ARG_LD)
   { int rc;
 
     if ( (rc=ensureGlobalSpace(3, ALLOW_GC)) != TRUE )
-      return FALSE;
+      return raiseStackOverflow(rc);
   }
 
   a = gTop;
@@ -2019,9 +2037,10 @@ PL_put_variable(term_t t)
 #define PL_put_variable(t) PL_put_variable__LD(t PASS_LD)
 
 
-void
+int
 PL_put_atom__LD(term_t t, atom_t a ARG_LD)
 { setHandle(t, a);
+  return TRUE;
 }
 
 
@@ -2060,6 +2079,9 @@ int
 PL_put_atom_nchars(term_t t, size_t len, const char *s)
 { GET_LD
   atom_t a = lookupAtom(s, len);
+
+  if ( len == (size_t)-1 )
+    len = strlen(s);
 
   setHandle(t, a);
   PL_unregister_atom(a);
@@ -2281,18 +2303,21 @@ PL_put_list(term_t l)
 }
 
 
-void
+int
 PL_put_nil(term_t l)
 { GET_LD
   setHandle(l, ATOM_nil);
+
+  return TRUE;
 }
 
 
-void
+int
 PL_put_term__LD(term_t t1, term_t t2 ARG_LD)
 { Word p2 = valHandleP(t2);
 
   setHandle(t1, linkVal(p2));
+  return TRUE;
 }
 
 
@@ -2421,8 +2446,8 @@ int
 PL_unify_atom_chars(term_t t, const char *chars)
 { GET_LD
   atom_t a = lookupAtom(chars, strlen(chars));
-
   int rval = unifyAtomic(t, a PASS_LD);
+
   PL_unregister_atom(a);
 
   return rval;
@@ -2965,6 +2990,9 @@ cont:
       txt.storage   = PL_CHARS_HEAP;
       txt.encoding  = ENC_WCHAR;
       txt.canonical = FALSE;
+
+      if ( txt.length == (size_t)-1 )
+	txt.length = wcslen(txt.text.w );
 
       rval = PL_unify_text(t, 0, &txt,
 			   op == PL_NWCHARS ? PL_ATOM :
@@ -3515,9 +3543,29 @@ PL_foreign_control(control_t h)
 }
 
 
+static int
+is_resource_error(term_t ex)
+{ GET_LD
+  Word p = valTermRef(ex);
+
+  deRef(p);
+  if ( hasFunctor(*p, FUNCTOR_error2) )
+  { p = argTermP(*p, 0);
+    deRef(p);
+
+    return hasFunctor(*p, FUNCTOR_resource_error1);
+  }
+
+  return FALSE;
+}
+
+
 int
 PL_raise_exception(term_t exception)
 { GET_LD
+
+  if ( is_resource_error(exception) )
+    save_backtrace("exception");
 
   if ( PL_is_variable(exception) )
     fatalError("Cannot throw variable exception");
@@ -3571,6 +3619,22 @@ PL_clear_exception(void)
 
   LD->exception.processing = FALSE;
 }
+
+
+void
+PL_clear_foreign_exception(LocalFrame fr)
+{ term_t ex = PL_exception(0);
+
+  Sdprintf("Foreign predicate %s did not clear exception: ",
+	   predicateName(fr->predicate));
+  PL_write_term(Serror, ex, 1200, 0);
+  Sdprintf("\n");
+  if ( is_resource_error(ex) )
+    print_backtrace_named("exception");
+
+  PL_clear_exception();
+}
+
 
 
 		/********************************
@@ -3629,17 +3693,15 @@ bindForeign(Module m, const char *name, int arity, Func f, int flags)
   if ( def->impl.any )
     PL_linger(def->impl.any);
   def->impl.function = f;
-  def->flags &= ~(DYNAMIC|P_THREAD_LOCAL|P_TRANSPARENT|NONDETERMINISTIC|P_VARARG);
-  def->flags |= (FOREIGN|TRACE_ME);
+  def->flags &= ~(P_DYNAMIC|P_THREAD_LOCAL|P_TRANSPARENT|P_NONDET|P_VARARG);
+  def->flags |= (P_FOREIGN|TRACE_ME);
 
-  if ( m == MODULE_system )
-    set(def, SYSTEM|HIDE_CHILDS);
-  else if ( SYSTEM_MODE )
-    set(def, SYSTEM|HIDE_CHILDS);
+  if ( m == MODULE_system || SYSTEM_MODE )
+    set(def, P_LOCKED|HIDE_CHILDS);
 
   if ( (flags & PL_FA_NOTRACE) )	  clear(def, TRACE_ME);
   if ( (flags & PL_FA_TRANSPARENT) )	  set(def, P_TRANSPARENT);
-  if ( (flags & PL_FA_NONDETERMINISTIC) ) set(def, NONDETERMINISTIC);
+  if ( (flags & PL_FA_NONDETERMINISTIC) ) set(def, P_NONDET);
   if ( (flags & PL_FA_VARARGS) )	  set(def, P_VARARG);
 
   createForeignSupervisor(def, f);
@@ -3762,7 +3824,7 @@ PL_toplevel(void)
 }
 
 
-void
+int
 PL_halt(int status)
 { int reclaim_memory = FALSE;
 
@@ -3770,9 +3832,12 @@ PL_halt(int status)
   reclaim_memory = TRUE;
 #endif
 
-  cleanupProlog(status, reclaim_memory);
+  if ( cleanupProlog(status, reclaim_memory) )
+  { run_on_halt(&GD->os.exit_hooks, status);
+    exit(status);
+  }
 
-  exit(status);
+  return FALSE;
 }
 
 
@@ -4303,62 +4368,13 @@ PL_action(int action, ...)
 		*         QUERY PROLOG          *
 		*********************************/
 
-#define c_argc (GD->cmdline._c_argc)
-#define c_argv (GD->cmdline._c_argv)
-
-static void
-init_c_args()
-{ if ( c_argc == -1 )
-  { int i;
-    int opts = 1;
-    int argc    = GD->cmdline.argc;
-    char **argv = GD->cmdline.argv;
-
-    c_argv = allocHeapOrHalt(argc * sizeof(char *));
-    c_argv[0] = argv[0];
-    c_argc = 1;
-
-    for(i=1; i<argc; i++)
-    { if ( opts && argv[i][0] == '-' )
-      { switch(argv[i][1])
-	{ case 'x':
-	  case 'g':
-	  case 'd':
-	  case 'f':
-	  case 's':
-	  case 't':
-	    i++;
-	    continue;
-	  case 'B':
-	  case 'L':
-	  case 'G':
-	  case 'O':
-	  case 'T':
-	  case 'A':
-	  case 'q':
-	    continue;
-         case '-':
-	   if (!argv[i][2])
-	   { opts = 0;
-	     continue;
-	   }
-	}
-      }
-      c_argv[c_argc++] = argv[i];
-    }
-  }
-}
-
-
 intptr_t
 PL_query(int query)
 { switch(query)
   { case PL_QUERY_ARGC:
-      init_c_args();
-      return (intptr_t) c_argc;
+      return (intptr_t) GD->cmdline.appl_argc;
     case PL_QUERY_ARGV:
-      init_c_args();
-      return (intptr_t) c_argv;
+      return (intptr_t) GD->cmdline.appl_argv;
     case PL_QUERY_MAX_INTEGER:
     case PL_QUERY_MIN_INTEGER:
       fail;				/* cannot represent (anymore) */

@@ -31,8 +31,6 @@
 #include <unistd.h>
 #endif
 
-#include "android/log.h"
-
 #define Qgetc(s) Snpgetc(s)		/* ignore position recording */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -173,6 +171,7 @@ bits) as well as machines with different byte order.
 #define XR_BLOB	   9			/* a typed atom (blob) */
 #define XR_BLOB_TYPE 10			/* name of atom-type declaration */
 #define XR_STRING_UTF8 11		/* Wide character string */
+#define XR_NULL	  12			/* NULL pointer */
 
 #define PRED_SYSTEM	 0x01		/* system predicate */
 #define PRED_HIDE_CHILDS 0x02		/* hide my childs */
@@ -186,19 +185,20 @@ typedef struct source_mark
 } source_mark, *SourceMark;
 
 
+#define XR_ARRAYS 16000
 typedef struct xr_table
 { int		id;			/* next id to give out */
-  Word	       *table;			/* main table */
   int		tablesize;		/* # sub-arrays */
   struct xr_table* previous;		/* stack */
+  Word	        table[XR_ARRAYS];	/* main table */
 } xr_table, *XrTable;
 
 
 typedef struct qlf_state
-{ int	has_moved;			/* Paths must be translated */
-  char *save_dir;			/* Directory saved */
+{ char *save_dir;			/* Directory saved */
   char *load_dir;			/* Directory loading */
   int   saved_version;			/* Version saved */
+  int	has_moved;			/* Paths must be translated */
   struct qlf_state *previous;		/* previous saved state (reentrance) */
 } qlf_state;
 
@@ -214,10 +214,11 @@ typedef struct wic_state
   Table	savedXRTable;			/* saved XR entries */
   intptr_t savedXRTableId;		/* next id to hand out */
 
-  int	     has_source_marks;
   SourceMark source_mark_head;		/* Locations of sources */
   SourceMark source_mark_tail;
+  int	     has_source_marks;
 
+  int	     load_nesting;		/* Nesting level of loadPart() */
   qlf_state *load_state;		/* current load-state */
 
   xr_table *XR;				/* external references */
@@ -260,23 +261,20 @@ static void	popPathTranslation(wic_state *state);
 
 #define loadedXRTableId		(loadedXrs->id)
 
-#define SUBENTRIES ((ALLOCSIZE)/sizeof(word))
+#define SUBENTRIES (8000)
+#define ALLOCSIZE  (SUBENTRIES*sizeof(word))
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-XR reference handling during loading.  This   is arranged as an array-of
-arrays.  These arrays are of size ALLOCSIZE,   so they will be reused on
-perfect-fit basis the pl-alloc.c.  With ALLOCSIZE   = 64K, this requires
-minimal 128K memory.   Maximum  allowed  references   is  16K^2  or  32M
-references.  That will normally overflow other system limits first.
+XR reference handling during loading. This   is  arranged as an array-of
+arrays. The main array has size  XR_ARRAYS. Each subarray has SUBENTRIES
+constants, allowing for a total of 96M constants per QLF file or state.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 static void
 pushXrIdTable(wic_state *state)
 { XrTable t = allocHeapOrHalt(sizeof(struct xr_table));
 
-  if ( !(t->table = allocHeapOrHalt(ALLOCSIZE)) )
-    outOfCore();
-  DEBUG(CHK_SECURE, memset(t->table, 0, ALLOCSIZE));
+  DEBUG(CHK_SECURE, memset(t->table, 0xbf, XR_ARRAYS*sizeof(Word)));
   t->tablesize = 0;
   t->id = 0;
 
@@ -295,7 +293,6 @@ popXrIdTable(wic_state *state)
   for(i=0; i<t->tablesize; i++)		/* destroy obsolete table */
     freeHeap(t->table[i], ALLOCSIZE);
 
-  freeHeap(t->table, ALLOCSIZE);
   freeHeap(t, sizeof(*t));
 }
 
@@ -319,13 +316,14 @@ storeXrId(wic_state *state, long id, word value)
   long i = id/SUBENTRIES;
 
   while ( i >= t->tablesize )
-  { Word a = allocHeapOrHalt(ALLOCSIZE);
+  { if ( t->tablesize < XR_ARRAYS-1 )
+    { Word a = allocHeapOrHalt(ALLOCSIZE);
 
-    if ( !a )
-      outOfCore();
-
-    DEBUG(CHK_SECURE, memset(a, 0, ALLOCSIZE));
-    t->table[t->tablesize++] = a;
+      DEBUG(CHK_SECURE, memset(a, 0xbf, ALLOCSIZE));
+      t->table[t->tablesize++] = a;
+    } else
+    { fatalError("Too many constants in QLF file");
+    }
   }
 
   t->table[i][id%SUBENTRIES] = value;
@@ -482,14 +480,14 @@ getInt64(IOSTREAM *fd)
 { int64_t first;
   int bytes, shift, b;
 
-  DEBUG(4, Sdprintf("getInt64() from %ld --> \n", Stell(fd)));
+  DEBUG(MSG_QLF_INTEGER, Sdprintf("getInt64() from %ld --> \n", Stell(fd)));
 
   first = Snpgetc(fd);
   if ( !(first & 0xc0) )		/* 99% of them: speed up a bit */
   { first <<= (INT64BITSIZE-6);
     first >>= (INT64BITSIZE-6);
 
-    DEBUG(4, Sdprintf(INT64_FORMAT "\n", first));
+    DEBUG(MSG_QLF_INTEGER, Sdprintf(INT64_FORMAT "\n", first));
     return first;
   }
 
@@ -519,7 +517,7 @@ getInt64(IOSTREAM *fd)
   first <<= shift;
   first >>= shift;
 
-  DEBUG(4, Sdprintf(INT64_FORMAT "\n", first));
+  DEBUG(MSG_QLF_INTEGER, Sdprintf(INT64_FORMAT "\n", first));
   return first;
 }
 
@@ -562,7 +560,7 @@ getFloat(IOSTREAM *fd)
     cl[double_byte_order[i]] = c;
   }
 
-  DEBUG(3, Sdprintf("getFloat() --> %f\n", f));
+  DEBUG(MSG_QLF_FLOAT, Sdprintf("getFloat() --> %f\n", f));
 
   return f;
 }
@@ -610,19 +608,20 @@ loadXRc(wic_state *state, int c ARG_LD)
     case XR_ATOM:
     { id = ++state->XR->id;
       xr = getAtom(fd, NULL);
-      DEBUG(3, Sdprintf("XR(%d) = '%s'\n", id, stringAtom(xr)));
+      DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = '%s'\n", id, stringAtom(xr)));
       break;
     }
     case XR_BLOB:
     { id = ++state->XR->id;
       xr = getBlob(state PASS_LD);
-      DEBUG(3, Sdprintf("XR(%d) = <blob>\n", id));
+      DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = <blob>\n", id));
       break;
     }
     case XR_BLOB_TYPE:
     { id = ++state->XR->id;
       xr = (word)getBlobType(fd);
-      DEBUG(3, Sdprintf("XR(%d) = <blob-type>%s", id, ((PL_blob_t*)xr)->name));
+      DEBUG(MSG_QLF_XR,
+	    Sdprintf("XR(%d) = <blob-type>%s", id, ((PL_blob_t*)xr)->name));
       break;
     }
     case XR_FUNCTOR:
@@ -633,7 +632,8 @@ loadXRc(wic_state *state, int c ARG_LD)
       name = loadXR(state);
       arity = getInt(fd);
       xr = (word) lookupFunctorDef(name, arity);
-      DEBUG(3, Sdprintf("XR(%d) = %s/%d\n", id, stringAtom(name), arity));
+      DEBUG(MSG_QLF_XR,
+	    Sdprintf("XR(%d) = %s/%d\n", id, stringAtom(name), arity));
       break;
     }
     case XR_PRED:
@@ -644,7 +644,8 @@ loadXRc(wic_state *state, int c ARG_LD)
       f = (functor_t) loadXR(state);
       m = (Module) loadXR(state);
       xr = (word) lookupProcedure(f, m);
-      DEBUG(3, Sdprintf("XR(%d) = proc %s\n", id, procedureName((Procedure)xr)));
+      DEBUG(MSG_QLF_XR,
+	    Sdprintf("XR(%d) = proc %s\n", id, procedureName((Procedure)xr)));
       break;
     }
     case XR_MODULE:
@@ -652,7 +653,7 @@ loadXRc(wic_state *state, int c ARG_LD)
       id = ++state->XR->id;
       name = loadXR(state);
       xr = (word) lookupModule(name);
-      DEBUG(3, Sdprintf("XR(%d) = module %s\n", id, stringAtom(name)));
+      DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = module %s\n", id, stringAtom(name)));
       break;
     }
     case XR_INT:
@@ -733,6 +734,8 @@ loadXRc(wic_state *state, int c ARG_LD)
 
       break;
     }
+    case XR_NULL:
+      return 0;
     default:
     { xr = 0;				/* make gcc happy */
       fatalError("Illegal XR entry at index %d: %c", Stell(fd)-1, c);
@@ -817,7 +820,7 @@ loadQlfTerm(wic_state *state, term_t term ARG_LD)
   Word vars;
   int rc;
 
-  DEBUG(3, Sdprintf("Loading from %d ...", Stell(fd)));
+  DEBUG(MSG_QLF_TERM, Sdprintf("Loading from %d ...", Stell(fd)));
 
   if ( (nvars = getInt(fd)) )
   { term_t *v;
@@ -831,7 +834,7 @@ loadQlfTerm(wic_state *state, term_t term ARG_LD)
 
   PL_put_variable(term);
   rc = do_load_qlf_term(state, vars, term PASS_LD);
-  DEBUG(3,
+  DEBUG(MSG_QLF_TERM,
 	Sdprintf("Loaded ");
 	PL_write_term(Serror, term, 1200, 0);
 	Sdprintf(" to %d\n", Stell(fd)));
@@ -976,7 +979,7 @@ loadStatement(wic_state *state, int c, int skip ARG_LD)
 
 	if ( !loadQlfTerm(state, goal PASS_LD) )
 	  return FALSE;
-	DEBUG(2,
+	DEBUG(MSG_QLF_DIRECTIVE,
 	      if ( source_file_name )
 	      { Sdprintf("%s:%d: Directive: ",
 			  PL_atom_chars(source_file_name), source_line_no);
@@ -987,13 +990,10 @@ loadStatement(wic_state *state, int c, int skip ARG_LD)
 	      Sdprintf("\n"));
 	if ( !skip )
 	{ if ( !callProlog(MODULE_user, goal, PL_Q_NODEBUG, NULL) )
-	  { Sfprintf(Serror,
-		     "[WARNING: %s:%d: (loading %s) directive failed: ",
-		     source_file_name ? stringAtom(source_file_name)
-				      : "<no file>",
-		     source_line_no, state->wicFile);
-	    PL_write_term(Serror, goal, 1200, 0);
-	    Sfprintf(Serror, "]\n");
+	  { printMessage(ATOM_warning,
+			 PL_FUNCTOR_CHARS, "goal_failed", 2,
+			   PL_CHARS, "directive",
+			   PL_TERM, goal);
 	  }
 	}
 	PL_discard_foreign_frame(cid);
@@ -1008,8 +1008,14 @@ loadStatement(wic_state *state, int c, int skip ARG_LD)
     }
 
     case 'Q':
-      return loadPart(state, NULL, skip PASS_LD);
+    { bool rc;
 
+      state->load_nesting++;
+      rc = loadPart(state, NULL, skip PASS_LD);
+      state->load_nesting--;
+
+      return rc;
+    }
     case 'M':
       return loadInModule(state, skip PASS_LD);
 
@@ -1027,7 +1033,7 @@ loadPredicateFlags(wic_state *state, Definition def, int skip)
   { unsigned long lflags = 0L;
 
     if ( flags & PRED_SYSTEM )
-      lflags |= SYSTEM;
+      lflags |= P_LOCKED;
     if ( flags & PRED_HIDE_CHILDS )
       lflags |= HIDE_CHILDS;
 
@@ -1046,9 +1052,9 @@ loadPredicate(wic_state *state, int skip ARG_LD)
   SourceFile csf = NULL;
 
   proc = lookupProcedureToDefine(f, LD->modules.source);
-  DEBUG(2, Sdprintf("Loading %s%s",
-		    procedureName(proc),
-		    skip ? " (skip)" : ""));
+  DEBUG(MSG_QLF_PREDICATE, Sdprintf("Loading %s%s",
+				    procedureName(proc),
+				    skip ? " (skip)" : ""));
 
   def = proc->definition;
   if ( !skip && state->currentSource )
@@ -1067,14 +1073,14 @@ loadPredicate(wic_state *state, int skip ARG_LD)
   for(;;)
   { switch(Sgetc(fd) )
     { case 'X':
-      { DEBUG(2, Sdprintf("ok\n"));
+      { DEBUG(MSG_QLF_PREDICATE, Sdprintf("ok\n"));
 	succeed;
       }
       case 'C':
       { Code bp, ep;
 	int ncodes = getInt(fd);
 
-	DEBUG(2, Sdprintf("."));
+	DEBUG(MSG_QLF_PREDICATE, Sdprintf("."));
 	clause = (Clause) PL_malloc_atomic(sizeofClause(ncodes));
 	clause->code_size = (unsigned int) ncodes;
 	clause->line_no = (unsigned short) getInt(fd);
@@ -1112,14 +1118,18 @@ loadPredicate(wic_state *state, int skip ARG_LD)
 	    fatalError("Illegal op-code (%d) at %ld", op, Stell(fd));
 
 	  ats = codeTable[op].argtype;
-	  DEBUG(3, Sdprintf("\t%s from %ld\n", codeTable[op].name, Stell(fd)));
+	  DEBUG(MSG_QLF_VMI,
+		Sdprintf("\t%s from %ld\n", codeTable[op].name, Stell(fd)));
 	  *bp++ = encode(op);
 	  DEBUG(0,
 		{ const char ca1_float[2] = {CA1_FLOAT};
+		  const char ca1_int64[2] = {CA1_INT64};
 		  assert(codeTable[op].arguments == VM_DYNARGC ||
 			 (size_t)codeTable[op].arguments == strlen(ats) ||
 			 (streq(ats, ca1_float) &&
-			  codeTable[op].arguments == WORDS_PER_DOUBLE));
+			  codeTable[op].arguments == WORDS_PER_DOUBLE) ||
+			 (streq(ats, ca1_int64) &&
+			  codeTable[op].arguments == WORDS_PER_INT64));
 		});
 
 	  for(n=0; ats[n]; n++)
@@ -1149,6 +1159,7 @@ loadPredicate(wic_state *state, int skip ARG_LD)
 	      case CA1_INTEGER:
 	      case CA1_JUMP:
 	      case CA1_VAR:
+	      case CA1_FVAR:
 	      case CA1_CHP:
 		*bp++ = (intptr_t)getInt64(fd);
 		break;
@@ -1175,7 +1186,7 @@ loadPredicate(wic_state *state, int skip ARG_LD)
 		int pad = (lw*sizeof(word) - l);
 		char *s = (char *)&bp[1];
 
-		DEBUG(3, Sdprintf("String of %ld bytes\n", l));
+		DEBUG(MSG_QLF_VMI, Sdprintf("String of %ld bytes\n", l));
 		*bp = mkStrHdr(lw, pad);
 		bp += lw;
 		*bp++ = 0L;
@@ -1185,7 +1196,7 @@ loadPredicate(wic_state *state, int skip ARG_LD)
 	      }
 	      case CA1_MPZ:
 #ifdef O_GMP
-	      DEBUG(3, Sdprintf("Loading MPZ from %ld\n", Stell(fd)));
+	      DEBUG(MSG_QLF_VMI, Sdprintf("Loading MPZ from %ld\n", Stell(fd)));
 	      { int mpsize = getInt(fd);
 		int l      = abs(mpsize)*sizeof(mp_limb_t);
 		int wsz	 = (l+sizeof(word)-1)/sizeof(word);
@@ -1200,7 +1211,7 @@ loadPredicate(wic_state *state, int skip ARG_LD)
 
 		while(--l >= 0)
 		  *s++ = Sgetc(fd);
-		DEBUG(3, Sdprintf("Loaded MPZ to %ld\n", Stell(fd)));
+		DEBUG(MSG_QLF_VMI, Sdprintf("Loaded MPZ to %ld\n", Stell(fd)));
 		break;
 	      }
 #else
@@ -1262,7 +1273,8 @@ static atom_t
 qlfFixSourcePath(wic_state *state, const char *raw)
 { char buf[MAXPATHLEN];
 
-  if ( state->load_state->has_moved && strprefix(raw, state->load_state->save_dir) )
+  if ( state->load_state->has_moved &&
+       strprefix(raw, state->load_state->save_dir) )
   { char *s;
     size_t lensave = strlen(state->load_state->save_dir);
     const char *tail = &raw[lensave];
@@ -1272,7 +1284,6 @@ qlfFixSourcePath(wic_state *state, const char *raw)
 
     strcpy(buf, state->load_state->load_dir);
     s = &buf[strlen(buf)];
-    *s++ = '/';
     strcpy(s, tail);
   } else
   { if ( strlen(raw)+1 > MAXPATHLEN )
@@ -1280,7 +1291,7 @@ qlfFixSourcePath(wic_state *state, const char *raw)
     strcpy(buf, raw);
   }
 
-  return PL_new_atom(canonisePath(buf));
+  return PL_new_atom(canonicalisePath(buf));
 }
 
 
@@ -1304,8 +1315,9 @@ qlfLoadSource(wic_state *state)
 
   fname = qlfFixSourcePath(state, str);
 
-  DEBUG(1, if ( !streq(stringAtom(fname), str) )
-	     Sdprintf("Replaced path %s --> %s\n", str, stringAtom(fname)));
+  DEBUG(MSG_QLF_PATH,
+	if ( !streq(stringAtom(fname), str) )
+	  Sdprintf("Replaced path %s --> %s\n", str, stringAtom(fname)));
 
   state->currentSource = lookupSourceFile(fname, TRUE);
   state->currentSource->mtime = time;
@@ -1392,13 +1404,14 @@ loadPart(wic_state *state, Module *module, int skip ARG_LD)
     { atom_t mname = loadXR(state);
       int c = Qgetc(fd);
 
-      DEBUG(1, Sdprintf("Loading module %s\n", PL_atom_chars(mname)));
+      DEBUG(MSG_QLF_SECTION,
+	    Sdprintf("Loading module %s\n", PL_atom_chars(mname)));
 
       switch( c )
       { case '-':
 	{ LD->modules.source = lookupModule(mname);
 					/* TBD: clear module? */
-	  DEBUG(1, Sdprintf("\tNo source\n"));
+	  DEBUG(MSG_QLF_SECTION, Sdprintf("\tNo source\n"));
 	  break;
 	}
 	case 'F':
@@ -1407,8 +1420,9 @@ loadPart(wic_state *state, Module *module, int skip ARG_LD)
 
 	  qlfLoadSource(state);
 	  line = getInt(fd);
-	  DEBUG(1, Sdprintf("\tSource = %s:%d\n",
-			    PL_atom_chars(state->currentSource->name), line));
+	  DEBUG(MSG_QLF_SECTION,
+		Sdprintf("\tSource = %s:%d\n",
+			 PL_atom_chars(state->currentSource->name), line));
 
 	  m = lookupModule(mname);
 	  if ( m->file && m->file != state->currentSource )
@@ -1454,8 +1468,10 @@ loadPart(wic_state *state, Module *module, int skip ARG_LD)
 
     switch(c)
     { case 'X':
-      { if ( !GD->bootsession )
+      { if ( !GD->bootsession && state->load_nesting > 0 )
+	{ /* top-level '$run_initialization'/1 is called from boot/init.pl */
 	  runInitialization(state->currentSource);
+	}
 	LD->modules.source = om;
 	state->currentSource  = of;
 	debugstatus.styleCheck = stchk;
@@ -1619,7 +1635,7 @@ putNum(int64_t n, IOSTREAM *fd)
 { int m;
   int64_t absn = (n >= 0 ? n : -n);
 
-  DEBUG(8, Sdprintf("0x%x at %ld\n", (uintptr_t)n, Stell(fd)));
+  DEBUG(MSG_QLF_INTEGER, Sdprintf("0x%x at %ld\n", (uintptr_t)n, Stell(fd)));
 
   if ( n != PLMININT )
   { if ( absn < (1L << 5) )
@@ -1660,7 +1676,7 @@ putFloat(double f, IOSTREAM *fd)
 { unsigned char *cl = (unsigned char *)&f;
   unsigned int i;
 
-  DEBUG(3, Sdprintf("putFloat(%f)\n", f));
+  DEBUG(MSG_QLF_FLOAT, Sdprintf("putFloat(%f)\n", f));
 
   for(i=0; i<BYTES_PER_DOUBLE; i++)
     Sputc(cl[double_byte_order[i]], fd);
@@ -1747,7 +1763,7 @@ savedXRConstant(wic_state *state, word w)
   assert(tag(w) == TAG_ATOM);		/* Only functor_t and atom_t */
 
   if ( !(rc=savedXR(state, (void *)(w|0x1))) && isAtom(w) )
-  { DEBUG(5, Sdprintf("REG: %s\n", stringAtom(w)));
+  { DEBUG(MSG_QLF_XR, Sdprintf("REG: %s\n", stringAtom(w)));
     PL_register_atom(w);
   }
 
@@ -1800,7 +1816,8 @@ saveXR__LD(wic_state *state, word xr ARG_LD)
     return;
 
   if ( isAtom(xr) )
-  { DEBUG(3, Sdprintf("XR(%d) = '%s'\n", state->savedXRTableId, stringAtom(xr)));
+  { DEBUG(MSG_QLF_XR,
+	  Sdprintf("XR(%d) = '%s'\n", state->savedXRTableId, stringAtom(xr)));
     putAtom(state, xr);
     return;
   }
@@ -1829,10 +1846,15 @@ saveXRModule(wic_state *state, Module m ARG_LD)
   if ( savedXRPointer(state, m) )
     return;
 
-  Sputc(XR_MODULE, fd);
-  DEBUG(3, Sdprintf("XR(%d) = module %s\n",
-		    state->savedXRTableId, stringAtom(m->name)));
-  saveXR(state, m->name);
+  if ( m )
+  { Sputc(XR_MODULE, fd);
+    DEBUG(MSG_QLF_XR,
+	  Sdprintf("XR(%d) = module %s\n",
+		   state->savedXRTableId, stringAtom(m->name)));
+    saveXR(state, m->name);
+  } else
+  { Sputc(XR_NULL, fd);
+  }
 }
 
 
@@ -1846,8 +1868,9 @@ saveXRFunctor(wic_state *state, functor_t f ARG_LD)
 
   fdef = valueFunctor(f);
 
-  DEBUG(3, Sdprintf("XR(%d) = %s/%d\n",
-		    state->savedXRTableId, stringAtom(fdef->name), fdef->arity));
+  DEBUG(MSG_QLF_XR,
+	Sdprintf("XR(%d) = %s/%d\n",
+		 state->savedXRTableId, stringAtom(fdef->name), fdef->arity));
   Sputc(XR_FUNCTOR, fd);
   saveXR(state, fdef->name);
   putNum(fdef->arity, fd);
@@ -1861,8 +1884,8 @@ saveXRProc(wic_state *state, Procedure p ARG_LD)
   if ( savedXRPointer(state, p) )
     return;
 
-  DEBUG(3, Sdprintf("XR(%d) = proc %s\n",
-		    state->savedXRTableId, procedureName(p)));
+  DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = proc %s\n",
+			     state->savedXRTableId, procedureName(p)));
   Sputc(XR_PRED, fd);
   saveXRFunctor(state, p->definition->functor->functor PASS_LD);
   saveXRModule(state, p->definition->module PASS_LD);
@@ -1879,13 +1902,13 @@ saveXRSourceFile(wic_state *state, SourceFile f ARG_LD)
   Sputc(XR_FILE, fd);
 
   if ( f )
-  { DEBUG(3, Sdprintf("XR(%d) = file %s\n",
-		      state->savedXRTableId, stringAtom(f->name)));
+  { DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = file %s\n",
+			       state->savedXRTableId, stringAtom(f->name)));
     Sputc(f->system ? 's' : 'u', fd);
     saveXR(state, f->name);
     putFloat(f->mtime, fd);
   } else
-  { DEBUG(3, Sdprintf("XR(%d) = <no file>\n", state->savedXRTableId));
+  { DEBUG(MSG_QLF_XR, Sdprintf("XR(%d) = <no file>\n", state->savedXRTableId));
     Sputc('-', fd);
   }
 }
@@ -1930,7 +1953,7 @@ saveQlfTerm(wic_state *state, term_t t ARG_LD)
 
   cid = PL_open_foreign_frame();
 
-  DEBUG(3,
+  DEBUG(MSG_QLF_TERM,
 	Sdprintf("Saving ");
 	PL_write_term(Serror, t, 1200, 0);
 	Sdprintf(" from %d ... ", Stell(fd)));
@@ -1943,7 +1966,7 @@ saveQlfTerm(wic_state *state, term_t t ARG_LD)
   if ( (nvars = numberVars(t, &options, 0 PASS_LD)) >= 0 )
   { putNum(nvars, fd);
     do_save_qlf_term(state, valTermRef(t) PASS_LD);	/* TBD */
-    DEBUG(3, Sdprintf("to %d\n", Stell(fd)));
+    DEBUG(MSG_QLF_TERM, Sdprintf("to %d\n", Stell(fd)));
   } else
   { rc = FALSE;
   }
@@ -1990,7 +2013,7 @@ saveWicClause(wic_state *state, Clause clause)
     int n;
 
     putNum(op, fd);
-    DEBUG(3, Sdprintf("\t%s at %ld\n", codeTable[op].name, Stell(fd)));
+    DEBUG(MSG_QLF_VMI, Sdprintf("\t%s at %ld\n", codeTable[op].name, Stell(fd)));
     for(n=0; ats[n]; n++)
     { switch(ats[n])
       { case CA1_PROC:
@@ -2021,6 +2044,7 @@ saveWicClause(wic_state *state, Clause clause)
 	case CA1_INTEGER:
 	case CA1_JUMP:
 	case CA1_VAR:
+	case CA1_FVAR:
 	case CA1_CHP:
 	{ putNum(*bp++, fd);
 	  break;
@@ -2064,11 +2088,11 @@ saveWicClause(wic_state *state, Clause clause)
 	  char *s = (char*)&bp[1];
 	  bp += wn;
 
-	  DEBUG(3, Sdprintf("Saving MPZ from %ld\n", Stell(fd)));
+	  DEBUG(MSG_QLF_VMI, Sdprintf("Saving MPZ from %ld\n", Stell(fd)));
 	  putNum(mpsize, fd);
 	  while(--l >= 0)
 	    Sputc(*s++&0xff, fd);
-	  DEBUG(3, Sdprintf("Saved MPZ to %ld\n", Stell(fd)));
+	  DEBUG(MSG_QLF_VMI, Sdprintf("Saved MPZ to %ld\n", Stell(fd)));
 	  break;
 	}
 #endif
@@ -2099,12 +2123,12 @@ predicateFlags(Definition def, atom_t sclass)
 { int flags = 0;
 
   if ( sclass == ATOM_kernel )
-  { if ( true(def, SYSTEM) && false(def, HIDE_CHILDS) )
+  { if ( true(def, P_LOCKED) && false(def, HIDE_CHILDS) )
       return PRED_SYSTEM;
     return (PRED_SYSTEM|PRED_HIDE_CHILDS);
   }
 
-  if ( true(def, SYSTEM) )
+  if ( true(def, P_LOCKED) )
     flags |= PRED_SYSTEM;
   if ( true(def, HIDE_CHILDS) )
     flags |= PRED_HIDE_CHILDS;
@@ -2161,7 +2185,7 @@ writeWicHeader(wic_state *state)
 
   initXR(state);
 
-  DEBUG(2, Sdprintf("Header complete ...\n"));
+  DEBUG(MSG_QLF_SECTION, Sdprintf("Header complete ...\n"));
   succeed;
 }
 
@@ -2267,19 +2291,19 @@ writeSourceMarks(wic_state *state)
 { long n = 0;
   SourceMark pn, pm = state->source_mark_head;
 
-  DEBUG(1, Sdprintf("Writing source marks: "));
+  DEBUG(MSG_QLF_SECTION, Sdprintf("Writing source marks: "));
 
   for( ; pm; pm = pn )
   { pn = pm->next;
 
-    DEBUG(1, Sdprintf(" %d", pm->file_index));
+    DEBUG(MSG_QLF_SECTION, Sdprintf(" %d", pm->file_index));
     putInt32(pm->file_index, state->wicFd);
     freeHeap(pm, sizeof(*pm));
     n++;
   }
   state->source_mark_head = state->source_mark_tail = NULL;
 
-  DEBUG(1, Sdprintf("\nWritten %d marks\n", n));
+  DEBUG(MSG_QLF_SECTION, Sdprintf("\nWritten %d marks\n", n));
   putInt32(n, state->wicFd);
 
   return 0;
@@ -2349,14 +2373,14 @@ qlfInfo(const char *file,
   if ( Sseek(s, -4, SIO_SEEK_END) < 0 )	/* 4 bytes of PutInt32() */
     return warning("qlf_info/4: seek failed: %s", OsError());
   nqlf = (int)getInt32(s);
-  DEBUG(1, Sdprintf("Found %d sources at", nqlf));
-  qlfstart = (size_t*)allocHeapOrHalt(sizeof(long) * nqlf);
+  DEBUG(MSG_QLF_SECTION, Sdprintf("Found %d sources at", nqlf));
+  qlfstart = (size_t*)allocHeapOrHalt(sizeof(size_t) * nqlf);
   Sseek(s, -4 * (nqlf+1), SIO_SEEK_END);
   for(i=0; i<nqlf; i++)
   { qlfstart[i] = (size_t)getInt32(s);
-    DEBUG(1, Sdprintf(" %ld", qlfstart[i]));
+    DEBUG(MSG_QLF_SECTION, Sdprintf(" %ld", qlfstart[i]));
   }
-  DEBUG(1, Sdprintf("\n"));
+  DEBUG(MSG_QLF_SECTION, Sdprintf("\n"));
 
   for(i=0; i<nqlf; i++)
   { if ( !qlfSourceInfo(&state, qlfstart[i], files PASS_LD) )
@@ -2504,9 +2528,10 @@ pushPathTranslation(wic_state *state, const char *absloadname, int flags)
 
     new->load_dir = store_string(l);
     new->save_dir = store_string(s);
-    DEBUG(1, Sdprintf("QLF file has moved; replacing %s --> %s\n",
-		      state->load_state->save_dir,
-		      state->load_state->load_dir));
+    DEBUG(MSG_QLF_PATH,
+	  Sdprintf("QLF file has moved; replacing %s --> %s\n",
+		   state->load_state->save_dir,
+		   state->load_state->load_dir));
   }
 
   succeed;
@@ -2647,13 +2672,14 @@ qlfStartModule(wic_state *state, Module m ARG_LD)
     saveXR(state, s->name);
   }
 
-  DEBUG(2, Sdprintf("MODULE %s\n", stringAtom(m->name)));
+  DEBUG(MSG_QLF_SECTION, Sdprintf("MODULE %s\n", stringAtom(m->name)));
   for_unlocked_table(m->public, s,
 		     { functor_t f = (functor_t)s->name;
 
-		       DEBUG(2, Sdprintf("Exported %s/%d\n",
-					 stringAtom(nameFunctor(f)),
-					 arityFunctor(f)));
+		       DEBUG(MSG_QLF_EXPORT,
+			     Sdprintf("Exported %s/%d\n",
+				      stringAtom(nameFunctor(f)),
+				      arityFunctor(f)));
 		       Sputc('E', fd);
 		       saveXRFunctor(state, f PASS_LD);
 		     })
@@ -3083,17 +3109,17 @@ compileFile(wic_state *state, const char *file)
   SourceFile sf;
   atom_t nf;
 
-  DEBUG(1, Sdprintf("Boot compilation of %s\n", file));
+  DEBUG(MSG_QLF_BOOT, Sdprintf("Boot compilation of %s\n", file));
   if ( !(path = AbsoluteFile(file, tmp)) )
     fail;
-  DEBUG(2, Sdprintf("Expanded to %s\n", path));
+  DEBUG(MSG_QLF_PATH, Sdprintf("Expanded to %s\n", path));
 
   nf = PL_new_atom(path);			/* NOTE: Only ISO-Latin-1 */
   PL_put_atom(f, nf);
-  DEBUG(2, Sdprintf("Opening\n"));
+  DEBUG(MSG_QLF_BOOT, Sdprintf("Opening\n"));
   if ( !pl_see(f) )
     fail;
-  DEBUG(2, Sdprintf("pl_start_consult()\n"));
+  DEBUG(MSG_QLF_BOOT, Sdprintf("pl_start_consult()\n"));
   sf = lookupSourceFile(nf, TRUE);
   startConsult(sf);
   if ( !LastModifiedFile(path, &sf->mtime) )
@@ -3117,11 +3143,12 @@ compileFile(wic_state *state, const char *file)
     if ( PL_get_atom(t, &eof) && eof == ATOM_end_of_file )
       break;
 
-    DEBUG(2, PL_write_term(Serror, t, 1200, PL_WRT_NUMBERVARS);
-	     Sdprintf("\n"));
+    DEBUG(MSG_QLF_BOOT_READ,
+	  PL_write_term(Serror, t, 1200, PL_WRT_NUMBERVARS);
+	  Sdprintf("\n"));
 
     if ( directiveClause(directive, t, ":-") )
-    { DEBUG(1,
+    { DEBUG(MSG_QLF_DIRECTIVE,
 	    Sdprintf(":- ");
 	    PL_write_term(Serror, directive, 1200, 0);
 	    Sdprintf(".\n") );
@@ -3131,7 +3158,7 @@ compileFile(wic_state *state, const char *file)
 		 PL_atom_chars(source_file_name),
 		 source_line_no);
     } else if ( directiveClause(directive, t, "$:-") )
-    { DEBUG(1,
+    { DEBUG(MSG_QLF_DIRECTIVE,
 	    Sdprintf("$:- ");
 	    PL_write_term(Serror, directive, 1200, 0);
 	    Sdprintf(".\n"));

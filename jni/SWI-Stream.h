@@ -209,7 +209,11 @@ typedef struct io_stream
   unsigned		references : 4;	/* Reference-count */
   int			io_errno;	/* Save errno value */
   void *		exception;	/* pending exception (record_t) */
-  intptr_t		reserved[2];	/* reserved for extension */
+  void *		context;	/* getStreamContext() */
+  struct PL_locale *	locale;		/* Locale associated to stream */
+#if 0 /* We used them all :-( */
+  intptr_t		reserved[0];	/* reserved for extension */
+#endif
 } IOSTREAM;
 
 
@@ -253,12 +257,12 @@ typedef struct io_stream
 
 PL_EXPORT(IOSTREAM *)	S__getiob(void);	/* get DLL's __iob[] address */
 
-PL_EXPORT_DATA(IOFUNCTIONS)  Sfilefunctions;	/* OS file functions */
-PL_EXPORT_DATA(int)	     Slinesize;		/* Sgets() linesize */
+PL_EXPORT_DATA(IOFUNCTIONS)	Sfilefunctions;	/* OS file functions */
+PL_EXPORT_DATA(int)		Slinesize;		/* Sgets() linesize */
 #if defined(__CYGWIN__) && !defined(PL_KERNEL)
 #define S__iob S__getiob()
 #else
-PL_EXPORT_DATA(IOSTREAM)    S__iob[3];		/* Libs standard streams */
+PL_EXPORT_DATA(IOSTREAM)	S__iob[3];		/* Libs standard streams */
 #endif
 
 #define Sinput  (&S__iob[0])		/* Stream Sinput */
@@ -381,6 +385,9 @@ PL_EXPORT(void)		Sclearerr(IOSTREAM *s);
 PL_EXPORT(void)		Sseterr(IOSTREAM *s, int which, const char *message);
 PL_EXPORT(void)		Sset_exception(IOSTREAM *s, term_t ex);
 PL_EXPORT(int)		Ssetenc(IOSTREAM *s, IOENC new_enc, IOENC *old_enc);
+PL_EXPORT(int)		Ssetlocale(IOSTREAM *s,
+				   struct PL_locale *new_loc,
+				   struct PL_locale **old_loc);
 PL_EXPORT(int)		Sflush(IOSTREAM *s);
 PL_EXPORT(int64_t)	Ssize(IOSTREAM *s);
 PL_EXPORT(int)		Sseek(IOSTREAM *s, long pos, int whence);

@@ -3,7 +3,7 @@
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2012, University of Amsterdam,
+    Copyright (C): 1985-2013, University of Amsterdam,
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -89,6 +89,8 @@ handy for it someone wants to add a data type to the system.
       of the predicates operating on strings might change.
       (NOTE: Currently some of the boot files rely on strings. It is NOT
       suggested to leave them out).
+  O_QUASIQUOTATIONS
+      Support quasi quoted content in read_term/3 and friends.
   O_COMPILE_OR
       Compile ->/2, ;/2 and |/2 into WAM.  This  no  longer  is  a  real
       option.   the mechanism to handle cuts without compiling ;/2, etc.
@@ -126,6 +128,8 @@ handy for it someone wants to add a data type to the system.
       requires O_DESTRUCTIVE_ASSIGNMENT.
   O_CYCLIC
       Provide support for cyclic terms.
+  O_LOCALE
+      Provide locale support on streams.
   O_GMP
       Use GNU gmp library for infinite precision arthmetic
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
@@ -136,6 +140,7 @@ handy for it someone wants to add a data type to the system.
 #define O_COMPILE_IS		1
 #define O_CALL_AT_MODULE	1
 #define O_STRING		1
+#define O_QUASIQUOTATIONS		1
 #define O_CATCHTHROW		1
 #define O_DEBUGGER		1
 #define O_INTERRUPT		1
@@ -144,6 +149,7 @@ handy for it someone wants to add a data type to the system.
 #define O_LIMIT_DEPTH		1
 #define O_SAFE_SIGNALS		1
 #define O_LOGICAL_UPDATE	1
+#define O_LOCALE		1
 #define O_ATOMGC		1
 #define O_CLAUSEGC		1
 #define O_ATTVAR		1
@@ -175,8 +181,8 @@ the compilation flags. We play safe for   the  case the user changes the
 flags after running configure.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-#if !defined(DOUBLE_ALIGNMENT) && defined(__mips__)
-#define DOUBLE_ALIGNMENT sizeof(double)
+#if defined(__mips__)
+#define ALIGNOF_DOUBLE sizeof(double)
 #endif
 
 
@@ -188,8 +194,8 @@ The ia64 says setjmp()/longjmp() buffer must be aligned at 128 bits
 #ifdef __ia64__
 #define JMPBUF_ALIGNMENT 128
 #else
-#ifdef DOUBLE_ALIGNMENT
-#define JMPBUF_ALIGNMENT DOUBLE_ALIGNMENT
+#if ALIGNOF_DOUBLE != ALIGNOF_VOIDP
+#define JMPBUF_ALIGNMENT ALIGNOF_DOUBLE
 #endif
 #endif
 #endif
@@ -327,6 +333,16 @@ typedef _sigset_t sigset_t;
 #define EMULATE_DLOPEN 1		/* Emulated dlopen() in pl-beos.c */
 #endif
 
+/* MAXPATHLEN is an optional POSIX feature (Bug#63).  As SWI-Prolog has
+   no length limits on text except for representing paths, we should
+   rewrite all file handling code to avoid MAXPATHLEN.  For now we just
+   define it.
+*/
+
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 1024
+#endif
+
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 A common basis for C keywords.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
@@ -406,9 +422,6 @@ typedef void *			caddress;
 #define ESC			((char) 27)
 #define streq(s, q)		((strcmp((s), (q)) == 0))
 
-#ifndef abs
-#define abs(x)			((x) < 0 ? -(x) : (x))
-#endif
 				/* n is 2^m !!! */
 #define ROUND(p, n)		((((p) + (n) - 1) & ~((n) - 1)))
 #define addPointer(p, n)	((void *) ((intptr_t)(p) + (intptr_t)(n)))
@@ -743,6 +756,7 @@ typedef enum
 #define GP_TYPE_QUIET	0x400		/* don't throw errors on wrong types */
 #define GP_EXISTENCE_ERROR 0x800	/* throw error if proc is not found */
 #define GP_QUALIFY	0x1000		/* Always module-qualify */
+#define GP_NOT_QUALIFIED 0x2000		/* Demand unqualified name/arity */
 
 					/* get_functor() */
 #define GF_EXISTING	1
@@ -798,43 +812,43 @@ with one operation, it turns out to be faster as well.
 #define clear(s, a)		((s)->flags &= ~(a))
 #define clearFlags(s)		((s)->flags = 0)
 
-#define NONDETERMINISTIC	(0x00000001L) /* predicate */
-#define DISCONTIGUOUS		(0x00000002L) /* predicate */
-#define DYNAMIC			(0x00000004L) /* predicate */
-#define FOREIGN			(0x00000008L) /* predicate */
-#define HIDE_CHILDS		(0x00000010L) /* predicate */
-#define MULTIFILE		(0x00000020L) /* predicate */
-#define P_NOPROFILE		(0x00000040L) /* predicate */
-#define SPY_ME			(0x00000080L) /* predicate */
-#define SYSTEM			(0x00000100L) /* predicate, module */
-#define TRACE_ME		(0x00000200L) /* predicate */
-#define P_TRANSPARENT		(0x00000400L) /* predicate */
-				/* (0x00000800L) */
-#define TRACE_CALL		(0x00001000L) /* predicate */
-#define TRACE_REDO		(0x00002000L) /* predicate */
-#define TRACE_EXIT		(0x00004000L) /* predicate */
-#define TRACE_FAIL		(0x00008000L) /* predicate */
-					/* This may be changed later ... */
-#define LOCKED			(SYSTEM)      /* predicate */
-#define FILE_ASSIGNED		(0x00010000L) /* predicate */
-#define VOLATILE		(0x00020000L) /* predicate */
-				/* (0x00040000L) */
-#define NEEDSCLAUSEGC		(0x00080000L) /* predicate */
-		      /* unused (0x00100000L) */
-#define P_VARARG		(0x00200000L) /* predicate */
-		      /* unused	(0x00400000L) */
-#define P_REDEFINED		(0x00800000L) /* predicate */
-#define PROC_DEFINED		(DYNAMIC|FOREIGN|MULTIFILE|DISCONTIGUOUS)
-#define P_THREAD_LOCAL		(0x01000000L) /* predicate */
-#define P_FOREIGN_CREF		(0x02000000L) /* predicate */
-#define P_DIRTYREG		(0x04000000L) /* predicate */
-#define P_ISO			(0x08000000L) /* predicate */
-#define P_META			(0x10000000L) /* predicate */
-#define P_MFCONTEXT		(0x20000000L) /* predicate */
-#define P_PUBLIC		(0x40000000L) /* predicate */
+/* Flags on predicates (packed in unsigned int */
 
-#define ERASED			(0x0001) /* clause, record */
-					 /* clause flags */
+#define P_QUASI_QUOTATION_SYNTAX	(0x00000004) /* <![Type[Quasi Quote]]> */
+#define P_NON_TERMINAL		(0x00000008) /* Grammar rule (Name//Arity) */
+#define P_SHRUNKPOW2		(0x00000010) /* See reconsider_index() */
+#define P_FOREIGN		(0x00000020) /* Implemented in C */
+#define P_NONDET		(0x00000040) /* Foreign: nondet */
+#define P_VARARG		(0x00000080) /* Foreign: use alt calling API */
+#define P_FOREIGN_CREF		(0x00000100) /* Foreign: ndet ctx is clause */
+#define P_DYNAMIC		(0x00000200) /* Dynamic predicate */
+#define P_THREAD_LOCAL		(0x00000400) /* Thread local dynamic predicate */
+#define P_VOLATILE		(0x00000800) /* Clauses are not saved */
+#define P_DISCONTIGUOUS		(0x00001000) /* Clauses are not together */
+#define P_MULTIFILE		(0x00002000) /* Clauses are in multiple files */
+#define P_PUBLIC		(0x00004000) /* Called from somewhere */
+#define P_ISO			(0x00008000) /* Part of the ISO standard */
+#define P_LOCKED		(0x00010000) /* Locked as system predicate */
+#define P_NOPROFILE		(0x00020000) /* Profile children, not me */
+#define P_TRANSPARENT		(0x00040000) /* Inherit calling module */
+#define P_META			(0x00080000) /* Has meta_predicate declaration */
+#define P_MFCONTEXT		(0x00100000) /* Used for Goal@Module */
+#define P_DIRTYREG		(0x00200000) /* Part of GD->procedures.dirty */
+#define NEEDSCLAUSEGC		(0x00400000) /* Holds erased clauses */
+#define HIDE_CHILDS		(0x00800000) /* Hide children from tracer */
+#define SPY_ME			(0x01000000) /* Spy point placed */
+#define TRACE_ME		(0x02000000) /* Can be debugged */
+#define TRACE_CALL		(0x04000000) /* Trace calls */
+#define TRACE_REDO		(0x08000000) /* Trace redo */
+#define TRACE_EXIT		(0x10000000) /* Trace edit */
+#define TRACE_FAIL		(0x20000000) /* Trace fail */
+#define FILE_ASSIGNED		(0x40000000) /* Is assigned to a file */
+#define P_REDEFINED		(0x80000000) /* Overrules a definition */
+#define PROC_DEFINED		(P_DYNAMIC|P_FOREIGN|P_MULTIFILE|P_DISCONTIGUOUS)
+
+/* Flags on clauses (packed in unsigned flags : 8) */
+
+#define CL_ERASED		(0x0001) /* clause was erased */
 #define UNIT_CLAUSE		(0x0002) /* Clause has no body */
 #define HAS_BREAKPOINTS		(0x0004) /* Clause has breakpoints */
 #define GOAL_CLAUSE		(0x0008) /* Dummy for meta-calling */
@@ -842,21 +856,31 @@ with one operation, it turns out to be faster as well.
 #define DBREF_CLAUSE		(0x0020) /* Clause has db-reference */
 #define DBREF_ERASED_CLAUSE	(0x0040) /* Deleted while referenced */
 
-#define CHARESCAPE		(0x0004) /* module */
-#define DBLQ_CHARS		(0x0008) /* "ab" --> ['a', 'b'] */
-#define DBLQ_ATOM		(0x0010) /* "ab" --> 'ab' */
-#define DBLQ_STRING		(0x0020) /* "ab" --> "ab" */
+/* Flags on module.  Most of these flags are copied to the read context
+   in pl-read.c.
+*/
+
+#define M_SYSTEM		(0x0001) /* system module */
+#define M_CHARESCAPE		(0x0002) /* module */
+#define DBLQ_CHARS		(0x0004) /* "ab" --> ['a', 'b'] */
+#define DBLQ_ATOM		(0x0008) /* "ab" --> 'ab' */
+#define DBLQ_STRING		(0x0010) /* "ab" --> "ab" */
 #define DBLQ_MASK		(DBLQ_CHARS|DBLQ_ATOM|DBLQ_STRING)
-#define MODULE_COPY_FLAGS	(DBLQ_MASK|CHARESCAPE)
-#define UNKNOWN_FAIL		(0x0040) /* module */
-#define UNKNOWN_WARNING		(0x0080) /* module */
-#define UNKNOWN_ERROR		(0x0100) /* module */
+#define UNKNOWN_FAIL		(0x0020) /* module */
+#define UNKNOWN_WARNING		(0x0040) /* module */
+#define UNKNOWN_ERROR		(0x0080) /* module */
 #define UNKNOWN_MASK		(UNKNOWN_ERROR|UNKNOWN_WARNING|UNKNOWN_FAIL)
+
+/* Flags on functors */
 
 #define CONTROL_F		(0x0002) /* functor (compiled controlstruct) */
 #define ARITH_F			(0x0004) /* functor (arithmetic operator) */
 
+/* Flags on record lists (recorded database keys) */
+
 #define RL_DIRTY		(0x0001) /* recordlist */
+
+/* Flags on recorded database records (also PL_record()) */
 
 #define R_ERASED		(0x0001) /* record: record is erased */
 #define R_EXTERNAL		(0x0002) /* record: inline atoms */
@@ -865,7 +889,7 @@ with one operation, it turns out to be faster as well.
 #define R_DBREF			(0x0010) /* record: has DB-reference */
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Handling environment (or local stack) frames.
+Macros for environment frames (local stack frames)
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #define FR_HIDE_CHILDS		(0x01L)	/* flag of pred after I_DEPART */
@@ -889,15 +913,50 @@ Handling environment (or local stack) frames.
 #define refFliP(f, n)		((Word)((f)+1) + (n))
 #define parentFrame(f)		((f)->parent ? (f)->parent\
 					     : (LocalFrame)varFrame((f), -1))
-#define slotsFrame(f)		(true((f)->predicate, FOREIGN) ? \
+#define slotsFrame(f)		(true((f)->predicate, P_FOREIGN) ? \
 				      (f)->predicate->functor->arity : \
 				      (f)->clause->clause->prolog_vars)
+
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Generations must be 64-bit to  avoid   overflow  in realistic scenarios.
+This makes them the only 64-bit value in struct localFrame. Stack frames
+mix with variables on the stacks and  are thus word-aligned. We have two
+options here. One is to represent a  generation as a struct (used below)
+or we must align frame at 8-byte  boundaries. The latter is probably the
+best solution, but merely aligning lTop in   I_ENTER  doesn't seem to be
+doing the trick: it causes failure of the  test suite for which I failed
+to find the reason. Enabling the structure   on x86 causes a slowdown of
+about 5%. I'd assume the difference is smaller on real 32-bit hardware.
+
+We enable this  if the alignment  of an int64_t type  is not the same as
+the alignment of pointers.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
 #ifdef O_LOGICAL_UPDATE
 typedef uint64_t gen_t;
-#define generationFrame(f)	((f)->generation)
+
+#if ALIGNOF_INT64_T != ALIGNOF_VOIDP
+typedef struct lgen_t
+{ uint32_t	gen_l;
+  uint32_t	gen_u;
+} lgen_t;
+
+#define generationFrame(f) \
+	((gen_t)(f)->generation.gen_u<<32 | (gen_t)(f)->generation.gen_l)
+#define setGenerationFrame(f, gen) \
+	do { (f)->generation.gen_u = (uint32_t)(gen>>32); \
+	     (f)->generation.gen_l = (uint32_t)(gen); \
+	   } while(0)
 #else
-#define generationFrame(f)	(0)
+typedef uint64_t lgen_t;
+#define generationFrame(f)	((f)->generation)
+#define setGenerationFrame(f, gen) \
+	do { (f)->generation = (gen); } while(0)
 #endif
+#else /*O_LOGICAL_UPDATE*/
+#define generationFrame(f)	(0)
+#define setGenerationFrame(f)	(void)0
+#endif /*O_LOGICAL_UPDATE*/
 
 #define FR_CLEAR_NEXT	FR_SKIPPED|FR_WATCHED|FR_CATCHED|FR_HIDE_CHILDS
 #define setNextFrameFlags(next, fr) \
@@ -915,13 +974,13 @@ introduce a garbage collector (TBD).
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #define enterDefinition(def) \
-	if ( unlikely(true(def, DYNAMIC)) ) \
+	if ( unlikely(true(def, P_DYNAMIC)) ) \
 	{ LOCKDYNDEF(def); \
 	  def->references++; \
 	  UNLOCKDYNDEF(def); \
 	}
 #define leaveDefinition(def) \
-	if ( unlikely(true(def, DYNAMIC)) ) \
+	if ( unlikely(true(def, P_DYNAMIC)) ) \
 	{ LOCKDYNDEF(def); \
 	  if ( --def->references == 0 && \
 	       true(def, NEEDSCLAUSEGC) ) \
@@ -1058,18 +1117,13 @@ typedef struct functor_array
 	((cl)->generation.created <= (gen) && \
 	 (cl)->generation.erased   > (gen))
 #else
-#define visibleClause(cl, gen) false(cl, ERASED)
+#define visibleClause(cl, gen) false(cl, CL_ERASED)
 #endif
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Because struct clause must be a multiple of sizeof(word) for compilation
-on behalf of I_USERCALL the  number  of   shorts  should  be  even. When
-compiling for the stack-shifter we use shorts for the marks slot and the
-line-number, otherwise we use  an  int   for  the  line-number. See also
-WORD_ALIGNED at the declaration of `code'. Demanding word-alignment is a
-machine independent way to achieve   proper alignment, but unfortunately
-it does not port to other C compilers.   Hence the trick with data sizes
-to avoid problems for most platforms.
+Struct clause must be a  multiple   of  sizeof(word)  for compilation on
+behalf  of  I_USERCALL.  This   is   verified    in   an   assertion  in
+checkCodeTable().
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #define sizeofClause(n) ((char *)&((Clause)NULL)->codes[n] - (char *)NULL)
@@ -1078,24 +1132,18 @@ struct clause
 { Procedure	procedure;		/* procedure we belong to */
 #ifdef O_LOGICAL_UPDATE
   struct
-  { gen_t created;		/* Generation that created me */
-    gen_t erased;		/* Generation I was erased */
+  { gen_t created;			/* Generation that created me */
+    gen_t erased;			/* Generation I was erased */
   } generation;
 #endif /*O_LOGICAL_UPDATE*/
   unsigned int		variables;	/* # of variables for frame */
   unsigned int		prolog_vars;	/* # real Prolog variables */
-  unsigned int		line_no;	/* Source line-number */
+  unsigned		flags : 8;	/* Flag field holding: */
+  unsigned		line_no : 24;	/* Source line-number */
   unsigned short	source_no;	/* Index of source-file */
   unsigned short	owner_no;	/* Index of owning source-file */
-  unsigned short	flags;		/* Flag field holding: */
-		/* ERASED	   Clause is retracted, but referenced */
-		/* UNIT_CLAUSE     Clause has no body */
-		/* HAS_BREAKPOINTS Break-instructions in the clause */
-		/* GOAL_CLAUSE	   Temporary 'islocal' clause (no head) */
-		/* COMMIT_CLAUSE   Clause will commit (execute !) */
-		/* DBREF_CLAUSE    Clause has a db-reference */
-  code		code_size;		/* size of ->codes */
-  code		codes[1];		/* VM codes of clause */
+  code			code_size;	/* size of ->codes */
+  code			codes[1];	/* VM codes of clause */
 };
 
 typedef struct clause_list
@@ -1104,6 +1152,7 @@ typedef struct clause_list
   ClauseIndex	clause_indexes;		/* Hash index(es) */
   unsigned int	number_of_clauses;	/* number of associated clauses */
   unsigned int	erased_clauses;		/* number of erased clauses in set */
+  unsigned int	number_of_rules;	/* number of real rules */
 } clause_list, *ClauseList;
 
 typedef struct clause_ref
@@ -1123,19 +1172,20 @@ typedef struct clause_ref
 
 #define CA1_PROC	1	/* code arg 1 is procedure */
 #define CA1_FUNC	2	/* code arg 1 is functor */
-#define CA1_DATA	3	/* code arg 2 is prolog data (H_CONST) */
+#define CA1_DATA	3	/* code arg 2 is prolog data (H_ATOM, H_SMALLINT) */
 #define CA1_INTEGER	4	/* intptr_t value */
 #define CA1_INT64	5	/* int64 value */
 #define CA1_FLOAT	6	/* next WORDS_PER_DOUBLE are double */
 #define CA1_STRING	7	/* inlined string */
 #define CA1_MODULE	8	/* a module */
 #define CA1_VAR		9	/* a variable(-offset) */
-#define CA1_CHP	       10	/* ChoicePoint (also variable(-offset)) */
-#define CA1_MPZ	       11	/* GNU mpz number */
-#define CA1_FOREIGN    12	/* Foreign function pointer */
-#define CA1_CLAUSEREF  13	/* Clause reference */
-#define CA1_JUMP       14	/* Instructions to skip */
-#define CA1_AFUNC      15	/* Number of arithmetic function */
+#define CA1_FVAR       10	/* a variable(-offset), used as `firstvar' */
+#define CA1_CHP	       11	/* ChoicePoint (also variable(-offset)) */
+#define CA1_MPZ	       12	/* GNU mpz number */
+#define CA1_FOREIGN    13	/* Foreign function pointer */
+#define CA1_CLAUSEREF  14	/* Clause reference */
+#define CA1_JUMP       15	/* Instructions to skip */
+#define CA1_AFUNC      16	/* Number of arithmetic function */
 
 #define VIF_BREAK      0x01	/* Can be a breakpoint */
 
@@ -1177,14 +1227,16 @@ struct clause_bucket
   unsigned int	dirty;			/* # of garbage clauses */
 };
 
+#define MAX_MULTI_INDEX 1
+
 struct clause_index
 { unsigned int	 buckets;		/* # entries */
   unsigned int	 size;			/* # clauses */
   unsigned int	 resize_above;		/* consider resize > #clauses */
   unsigned int	 resize_below;		/* consider resize < #clauses */
-  unsigned short arg;			/* Indexed argument */
-  unsigned	 is_list : 1;		/* Index with lists */
   unsigned int	 dirty;			/* # chains that are dirty */
+  unsigned short args[MAX_MULTI_INDEX];	/* Indexed arguments */
+  unsigned	 is_list : 1;		/* Index with lists */
   float		 speedup;		/* Estimated speedup */
   struct bit_vector *tried_better;	/* We tried to access for better hash */
   ClauseIndex	 next;			/* Next index */
@@ -1226,29 +1278,8 @@ struct definition
   struct bit_vector *tried_index;	/* Arguments on which we tried to index */
   meta_mask	meta_info;		/* meta-predicate info */
   int		references;		/* reference count */
-  unsigned int  flags;			/* booleans: */
-		/*	FOREIGN		   foreign predicate? */
-		/*	PROFILE_TICKED	   has been ticked this time? */
-		/*	TRACE_ME	   is my call visible? */
-		/*	HIDE_CHILDS	   hide childs for the debugger? */
-		/*	SPY_ME		   spy point set? */
-		/*	DYNAMIC		   dynamic predicate? */
-		/*	MULTIFILE	   defined over more files? */
-		/*	SYSTEM		   system predicate */
-		/*	P_TRANSPARENT	   procedure transparent to modules */
-		/*	DISCONTIGUOUS	   procedure might be discontiguous */
-		/*	NONDETERMINISTIC   deterministic foreign (not used) */
-		/*	GC_SAFE		   Save to perform GC while active */
-		/*	TRACE_CALL	   Trace call-port */
-		/*	TRACE_REDO	   Trace redo-port */
-		/*	TRACE_EXIT	   Trace exit-port */
-		/*	TRACE_FAIL	   Trace fail-port */
-		/*	VOLATILE	   Don't save my clauses */
-		/*	AUTOINDEX	   Automatically guess index */
-		/*	NEEDSCLAUSEGC	   Clauses have been erased */
-		/*	P_VARARG	   Foreign called using t0, ac, ctx */
-		/*	P_SHARED	   Multiple procs are using me */
-  unsigned short shared;		/* #procedures sharing this def */
+  unsigned int  flags;			/* booleans (P_*) */
+  unsigned int  shared;			/* #procedures sharing this def */
 #ifdef O_PROF_PENTIUM
   int		prof_index;		/* index in profiling */
   char	       *prof_name;		/* name in profiling */
@@ -1277,15 +1308,10 @@ struct localFrame
   struct call_node *prof_node;		/* Profiling node */
 #endif
 #ifdef O_LOGICAL_UPDATE
-  gen_t		generation;		/* generation of the database */
+  lgen_t	generation;		/* generation of the database */
 #endif
   unsigned int	level;			/* recursion level */
   unsigned int	flags;			/* packed long holding: */
-		/*	FR_HIDE_CHILDS don't debug this frame ? */
-		/*	FR_SKIPPED skipped in the tracer */
-		/*	FR_MARKED  Marked by GC */
-		/*	FR_WATCHED Watched by the debugger */
-		/*	FR_CATCHED Catched exception here */
 };
 
 
@@ -1367,6 +1393,7 @@ struct queryFrame
     Word	argp;
     Code	pc;
   } registers;
+  LocalFrame	next_environment;	/* See D_BREAK and get_vmi_state() */
 #ifdef O_LIMIT_DEPTH
   uintptr_t saved_depth_limit;		/* saved values of these */
   uintptr_t saved_depth_reached;
@@ -1473,13 +1500,6 @@ struct module
   int		level;		/* Distance to root (root=0) */
   unsigned int	line_no;	/* Source line-number */
   unsigned int  flags;		/* booleans: */
-		/*	SYSTEM	   system module */
-		/*	DBLQ_INHERIT inherit from default module */
-		/*	DBLQ_CHARS "ab" --> ['a', 'b'] */
-		/*	DBLQ_ATOM  "ab" --> 'ab' */
-		/*	UNKNOWN_FAIL silent failure of unknown pred */
-		/*	UNKNOWN_WARNING Warn on unknown pred */
-		/*	UNKNOWN_ERROR Error on unknown pred */
 };
 
 struct trail_entry
@@ -1507,36 +1527,6 @@ struct gc_trail_entry
 #define MA_SETINFO(def, n, i) \
 	((def)->meta_info &= ~((meta_mask)0xf << (n)*4), \
 	 (def)->meta_info |= ((meta_mask)(i) << (n)*4))
-
-
-		 /*******************************
-		 *	 MEMORY ALLOCATION	*
-		 *******************************/
-
-#define ALLOCFAST	(64*SIZEOF_VOIDP) /* big enough for all structures */
-#define ALLOCSIZE	(ALLOCFAST*128)	  /* size of allocation chunks (64K) */
-
-typedef struct free_chunk *FreeChunk;	/* left-over chunk */
-typedef struct chunk *Chunk;		/* Allocation-chunk */
-typedef struct alloc_pool *AllocPool;	/* Allocation pool */
-
-struct chunk
-{ Chunk		next;			/* next of chain */
-};
-
-struct free_chunk
-{ FreeChunk	next;			/* next of chain */
-  size_t	size;			/* size of free bit */
-};
-
-struct alloc_pool
-{ char	       *space;			/* pointer to free space */
-  size_t	free;			/* size of free space */
-  size_t	allocated;		/* total bytes allocated */
-					/* fast perfect fit chains */
-  Chunk		free_chains[ALLOCFAST/sizeof(Chunk)+1];
-  int		free_count[ALLOCFAST/sizeof(Chunk)+1];
-};
 
 
 		 /*******************************
@@ -1852,12 +1842,17 @@ typedef struct
   int	    numbered_check;		/* Check for already numbered */
 } nv_options;
 
-#define BEGIN_NUMBERVARS() \
-	{ fid_t _savedf = LD->var_names.numbervars_frame; \
-	  LD->var_names.numbervars_frame = PL_open_foreign_frame();
-#define END_NUMBERVARS() \
-	  PL_discard_foreign_frame(LD->var_names.numbervars_frame); \
-	  LD->var_names.numbervars_frame = _savedf; \
+#define BEGIN_NUMBERVARS(save) \
+	{ fid_t _savedf; \
+	  if ( save ) \
+	  { _savedf = LD->var_names.numbervars_frame; \
+	    LD->var_names.numbervars_frame = PL_open_foreign_frame(); \
+	  }
+#define END_NUMBERVARS(save) \
+          if ( save ) \
+	  { PL_discard_foreign_frame(LD->var_names.numbervars_frame); \
+	    LD->var_names.numbervars_frame = _savedf; \
+	  } \
 	}
 
 
@@ -2019,11 +2014,17 @@ Tracer communication declarations.
 #define CUT_PORT	(CUT_CALL_PORT|CUT_EXIT_PORT)
 #define PORT_MASK	0x1ff
 
-#define LONGATOM_CHECK	    0x01	/* read/1: error on intptr_t atoms */
-#define SINGLETON_CHECK	    0x02	/* read/1: check singleton vars */
-#define DISCONTIGUOUS_STYLE 0x08	/* warn on discontiguous predicates */
-#define DYNAMIC_STYLE	    0x10	/* warn on assert/retract active */
-#define CHARSET_CHECK	    0x20	/* warn on unquoted characters */
+/* keep in sync with style_name/1 in boot/prims.pl */
+
+#define LONGATOM_CHECK	    0x0001	/* read/1: error on intptr_t atoms */
+#define SINGLETON_CHECK	    0x0002	/* read/1: check singleton vars */
+#define MULTITON_CHECK	    0x0004	/* read/1: check multiton vars */
+#define DISCONTIGUOUS_STYLE 0x0008	/* warn on discontiguous predicates */
+#define DYNAMIC_STYLE	    0x0010	/* warn on assert/retract active */
+#define CHARSET_CHECK	    0x0020	/* warn on unquoted characters */
+#define SEMSINGLETON_CHECK  0x0040	/* Semantic singleton checking */
+#define NOEFFECT_CHECK	    0x0080	/* Check for meaningless statements */
+#define VARBRANCH_CHECK	    0x0100	/* warn on unbalanced variables */
 #define MAXNEWLINES	    5		/* maximum # of newlines in atom */
 
 typedef struct debuginfo
@@ -2069,6 +2070,7 @@ typedef struct debuginfo
 #define PLFLAG_DEBUGINFO	    0x080000 /* generate debug info */
 #define PLFLAG_FILEERRORS	    0x100000 /* Edinburgh file errors */
 #define PLFLAG_WARN_OVERRIDE_IMPLICIT_IMPORT 0x200000 /* Warn overriding weak symbols */
+#define PLFLAG_QUASI_QUOTES	    0x400000 /* Support quasi quotes */
 
 typedef struct
 { unsigned int flags;		/* Fast access to some boolean Prolog flags */
@@ -2151,6 +2153,7 @@ decrease).
 #include "pl-data.h"			/* Access Prolog data */
 #include "pl-segstack.h"		/* Segmented stacks */
 #include "pl-gmp.h"			/* GNU-GMP support */
+#include "os/pl-locale.h"		/* Locale objects */
 #include "os/pl-file.h"			/* Stream management */
 #include "pl-global.h"			/* global data */
 #include "pl-funcs.h"			/* global functions */
@@ -2163,10 +2166,8 @@ decrease).
 #include "os/pl-files.h"		/* File management */
 #include "os/pl-string.h"		/* Basic string functions */
 
-#if 1
 #ifdef ATOMIC_INC
 #define ATOMIC_REFERENCES 1		/* Use atomic +/- for atom references */
-#endif
 #endif
 
 #ifdef __DECC				/* Dec C-compiler: avoid conflicts */
@@ -2177,7 +2178,6 @@ decrease).
 
 #ifdef DMALLOC
 #define DMALLOC_FUNC_CHECK 1
-#define O_MYALLOC 0
 #include <dmalloc.h>
 #define allocHeap(n)		malloc(n)
 #define allocHeapOrHalt(n)	xmalloc(n)

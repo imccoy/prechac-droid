@@ -78,14 +78,13 @@ This notably affects I/O  (reset  current  I/O   to  user  I/O)  and the
 debugger.
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-static int
-query_loop(atom_t goal)
+int
+query_loop(atom_t goal, int loop)
 { GET_LD
   int rc;
-  int loop = TRUE;
   int clear_stacks = (LD->query == NULL);
 
-  while(loop)
+  do
   { fid_t fid;
     qid_t qid = 0;
     term_t except = 0;
@@ -126,7 +125,7 @@ query_loop(atom_t goal)
     if ( fid ) PL_discard_foreign_frame(fid);
     if ( !except )
       break;
-  }
+  } while(loop);
 
   return rc;
 }
@@ -165,7 +164,7 @@ pl_break1(atom_t goal)
 		   PL_INT,  LD->break_level);
   }
 
-  rc = query_loop(goal);
+  rc = query_loop(goal, TRUE);
 
   if ( LD->break_level > 0 )
   { printMessage(ATOM_informational,
@@ -395,11 +394,15 @@ prologToplevel(atom_t goal)
 { GET_LD
   int rc;
   int old_level = LD->break_level;
+  int loop;
 
   if ( goal == ATOM_dquery_loop ||
        goal == ATOM_dtoplevel )
-    LD->break_level++;
-  rc = query_loop(goal);
+  { LD->break_level++;
+    loop = TRUE;
+  } else
+    loop = FALSE;
+  rc = query_loop(goal, loop);
   LD->break_level = old_level;
 
   return rc;
@@ -442,6 +445,7 @@ PRED_IMPL("$trap_gdb", 0, trap_gdb, 0)
 }
 
 #if O_DEBUG || defined(O_MAINTENANCE)
+#define HAVE_CHECK_DATA 1
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 checkData(p) verifies p points to valid  Prolog  data  and  generates  a
@@ -496,6 +500,7 @@ last_arg:
 }
 
 
+#ifdef O_DEBUG
 static int				/* avoid false alarm in CHR */
 is_ht_capacity(int arity)
 { int cap = 89;				/* chr_hashtable_store.pl */
@@ -505,7 +510,7 @@ is_ht_capacity(int arity)
 
   return cap == arity;
 }
-
+#endif
 
 static word
 check_data(Word p, int *recursive ARG_LD)
@@ -518,14 +523,16 @@ last_arg:
   while(isRef(*p))
   { assert(!is_marked(p));
     p2 = unRef(*p);
-    if ( p2 > p )
-    {
+    DEBUG(CHK_HIGHER_ADDRESS,
+          { if ( p2 > p )
+            {
 #ifdef O_ATTVAR
-      if ( !isAttVar(*p2) )
+              if ( !isAttVar(*p2) )
 #endif
-	if ( !gc_status.blocked )
-	  printk("Reference to higher address");
-    }
+                if ( !gc_status.blocked )
+                  printk("Reference to higher address");
+            }
+          });
     if ( p2 == p )
       printk("Reference to same address");
     if ( !onLocal(p2) && !onGlobal(p2) )
@@ -659,8 +666,11 @@ last_arg:
     arity = arityFunctor(f->definition);
     if ( arity < 0 )
       printk("Illegal arity (%d)", arity);
-    else if ( arity > 256 && !is_ht_capacity(arity) )
-      printk("Dubious arity (%d)", arity);
+    else
+      DEBUG(CHK_HIGH_ARITY,
+            { if ( arity > 256 && !is_ht_capacity(arity) )
+                printk("Dubious arity (%d)", arity);
+            });
 
     mark(p);
     for(n=0; n<arity-1; n++)
@@ -685,6 +695,20 @@ checkData(Word p)
 }
 
 #endif /* TEST */
+
+int
+PL_check_data(term_t data)
+{
+#ifdef HAVE_CHECK_DATA
+  GET_LD
+
+  (void)checkData(valTermRef(data));
+  return TRUE;
+#else
+  return FALSE;
+#endif
+}
+
 
 		 /*******************************
 		 *         LLVM-GCC HACK	*

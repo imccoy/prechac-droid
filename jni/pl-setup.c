@@ -53,7 +53,7 @@ static void initSignals(void);
 static void gcPolicy(Stack s, int policy);
 
 int
-setupProlog(void)
+setupProlog()
 { GET_LD
   DEBUG(1, Sdprintf("Starting Heap Initialisation\n"));
 
@@ -114,6 +114,9 @@ setupProlog(void)
   initFiles();
   initIO();
   initCharConversion();
+#ifdef O_LOCALE
+  initLocale();
+#endif
   GD->io_initialised = TRUE;
 
   if ( !endCritical )
@@ -372,13 +375,15 @@ dispatch_signal(int sig, int sync)
     return;				/* what else?? */
   }
 
-  DEBUG(1, Sdprintf("Got signal %d in thread %d (=%d) %s\n",
-		    sig, LD->thread.info->pl_tid,
-		    pthread_self(),
-		    sync ? " (sync)" : " (async)"));
+  DEBUG(MSG_SIGNAL,
+	Sdprintf("Got signal %d in thread %d (=%d) %s\n",
+		 sig, LD->thread.info->pl_tid,
+		 pthread_self(),
+		 sync ? " (sync)" : " (async)"));
 #else
-  DEBUG(1, Sdprintf("Got signal %d %s\n",
-		    sig, sync ? " (sync)" : " (async)"));
+  DEBUG(MSG_SIGNAL,
+	Sdprintf("Got signal %d %s\n",
+		 sig, sync ? " (sync)" : " (async)"));
 #endif
 
   if ( true(sh, PLSIG_NOFRAME) && sh->handler )
@@ -420,8 +425,9 @@ dispatch_signal(int sig, int sync)
   LD->signal.current = sig;
   LD->signal.is_sync = sync;
 
-  DEBUG(1, Sdprintf("Handling signal %d, pred = %p, handler = %p\n",
-		    sig, sh->predicate, sh->handler));
+  DEBUG(MSG_SIGNAL,
+	Sdprintf("Handling signal %d, pred = %p, handler = %p\n",
+		 sig, sh->predicate, sh->handler));
 
   if ( sh->predicate )
   { term_t sigterm = PL_new_term_ref();
@@ -465,6 +471,10 @@ dispatch_signal(int sig, int sync)
     return;				/* make sure! */
   } else if ( sh->handler )
   { (*sh->handler)(sig);
+
+    DEBUG(MSG_SIGNAL,
+	  Sdprintf("Handler %p finished (pending=%lld)\n",
+		   sh->handler, LD->signal.pending));
 
     if ( exception_term && !sync )	/* handler: PL_raise_exception() */
     { LD->signal.exception = PL_record(exception_term);
@@ -1108,6 +1118,8 @@ initPrologStacks(size_t local, size_t global, size_t trail)
   base_addresses[STG_GLOBAL] = (uintptr_t)gBase;
   base_addresses[STG_TRAIL]  = (uintptr_t)tBase;
   *gBase++ = MARK_MASK;			/* see sweep_global_mark() */
+  gMax--;				/*  */
+  tMax--;
   emptyStacks();
 
   DEBUG(1, Sdprintf("base_addresses[STG_LOCAL] = %p\n",
@@ -1177,14 +1189,18 @@ emptyStacks(void)
 		*********************************/
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Malloc/realloc/free based stack allocation
+init_stack() initializes the stack straucture. Params:
+
+  - name is the name of the stack (for diagnostic purposes)
+  - size is the allocated size
+  - limit is the maximum to which the stack is allowed to grow
+  - spare is the amount of spare stack we reserve
+  - gc indicates whether gc can collect data on the stack
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 static void
-init_stack(Stack s, char *name, size_t size, size_t limit, size_t spare)
-{ GET_LD
-
-  s->name	= name;
+init_stack(Stack s, char *name, size_t size, size_t limit, size_t spare, int gc)
+{ s->name	= name;
   s->top	= s->base;
   s->size_limit	= limit;
   s->spare      = spare;
@@ -1192,8 +1208,7 @@ init_stack(Stack s, char *name, size_t size, size_t limit, size_t spare)
   s->min_free   = 256*sizeof(word);
   s->max	= addPointer(s->base, size - spare);
   s->gced_size  = 0L;			/* size after last gc */
-  s->gc	        = ((s == (Stack) &LD->stacks.global ||
-		    s == (Stack) &LD->stacks.trail) ? TRUE : FALSE);
+  s->gc	        = gc;
   gcPolicy(s, GC_FAST_POLICY);
 }
 
@@ -1226,13 +1241,13 @@ allocStacks(size_t local, size_t global, size_t trail)
   lBase = (LocalFrame) addPointer(gBase, iglobal);
 
   init_stack((Stack)&LD->stacks.global,
-	     "global",   iglobal, global, 512*SIZEOF_VOIDP);
+	     "global",   iglobal, global, 512*SIZEOF_VOIDP, TRUE);
   init_stack((Stack)&LD->stacks.local,
-	     "local",    ilocal,  local,  512*SIZEOF_VOIDP);
+	     "local",    ilocal,  local,  512*SIZEOF_VOIDP, FALSE);
   init_stack((Stack)&LD->stacks.trail,
-	     "trail",    itrail,  trail,  256*SIZEOF_VOIDP);
+	     "trail",    itrail,  trail,  256*SIZEOF_VOIDP, TRUE);
   init_stack((Stack)&LD->stacks.argument,
-	     "argument", argument, argument, 0);
+	     "argument", minargument, argument, 0, FALSE);
 
   LD->stacks.local.min_free = LOCAL_MARGIN;
 
@@ -1481,7 +1496,11 @@ freePrologLocalData(PL_local_data_t *ld)
 #endif
 
   if ( ld->bags.default_bag )
-    PL_free(ld->bags.default_bag);
+  { PL_free(ld->bags.default_bag);
+#ifdef O_ATOMGC
+    simpleMutexDelete(&ld->bags.mutex);
+#endif
+  }
 
 #ifdef O_CYCLIC
   clearSegStack(&ld->cycle.lstack);

@@ -3,7 +3,7 @@
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2012, University of Amsterdam,
+    Copyright (C): 1985-2013, University of Amsterdam,
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -35,6 +35,7 @@
 
 #include "pl-incl.h"
 #include "os/pl-cstack.h"
+#include "pl-prof.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <math.h>
@@ -227,6 +228,10 @@ Some remarks:
    0L \
  }
 
+/* NOTE: These must be kept in sequence such that they align with
+   the #defines for L_* in pl-thread.h
+*/
+
 counting_mutex _PL_mutexes[] =
 { COUNT_MUTEX_INITIALIZER("L_MISC"),
   COUNT_MUTEX_INITIALIZER("L_ALLOC"),
@@ -235,21 +240,26 @@ counting_mutex _PL_mutexes[] =
   COUNT_MUTEX_INITIALIZER("L_FUNCTOR"),
   COUNT_MUTEX_INITIALIZER("L_RECORD"),
   COUNT_MUTEX_INITIALIZER("L_THREAD"),
+  COUNT_MUTEX_INITIALIZER("L_MUTEX"),
   COUNT_MUTEX_INITIALIZER("L_PREDICATE"),
   COUNT_MUTEX_INITIALIZER("L_MODULE"),
   COUNT_MUTEX_INITIALIZER("L_TABLE"),
   COUNT_MUTEX_INITIALIZER("L_BREAK"),
   COUNT_MUTEX_INITIALIZER("L_FILE"),
+  COUNT_MUTEX_INITIALIZER("L_SEETELL"),
   COUNT_MUTEX_INITIALIZER("L_PLFLAG"),
   COUNT_MUTEX_INITIALIZER("L_OP"),
   COUNT_MUTEX_INITIALIZER("L_INIT"),
   COUNT_MUTEX_INITIALIZER("L_TERM"),
   COUNT_MUTEX_INITIALIZER("L_GC"),
   COUNT_MUTEX_INITIALIZER("L_AGC"),
+  COUNT_MUTEX_INITIALIZER("L_STOPTHEWORLD"),
   COUNT_MUTEX_INITIALIZER("L_FOREIGN"),
-  COUNT_MUTEX_INITIALIZER("L_OS")
-#ifdef L_DDE
+  COUNT_MUTEX_INITIALIZER("L_OS"),
+  COUNT_MUTEX_INITIALIZER("L_LOCALE")
+#ifdef __WINDOWS__
 , COUNT_MUTEX_INITIALIZER("L_DDE")
+, COUNT_MUTEX_INITIALIZER("L_CSTACK")
 #endif
 };
 
@@ -327,7 +337,7 @@ PRED_IMPL("mutex_statistics", 0, mutex_statistics, 0)
   Sdprintf("Name                               locked\n"
 	   "-----------------------------------------\n");
 #endif
-  PL_LOCK(L_THREAD);
+  PL_LOCK(L_MUTEX);
   for(cm = GD->thread.mutexes; cm; cm = cm->next)
   { if ( cm->count == 0 )
       continue;
@@ -336,7 +346,7 @@ PRED_IMPL("mutex_statistics", 0, mutex_statistics, 0)
 #ifdef O_CONTENTION_STATISTICS
     Sdprintf(" %8d", cm->collisions);
 #endif
-    if ( cm == &_PL_mutexes[L_THREAD] )
+    if ( cm == &_PL_mutexes[L_MUTEX] )
     { if ( cm->count - cm->unlocked != 1 )
 	Sdprintf(" LOCKS: %d\n", cm->count - cm->unlocked - 1);
       else
@@ -348,7 +358,7 @@ PRED_IMPL("mutex_statistics", 0, mutex_statistics, 0)
 	Sdprintf("\n");
     }
   }
-  PL_UNLOCK(L_THREAD);
+  PL_UNLOCK(L_MUTEX);
 
   succeed;
 }
@@ -361,6 +371,7 @@ PRED_IMPL("mutex_statistics", 0, mutex_statistics, 0)
 static PL_thread_info_t *alloc_thread(void);
 static void	unalloc_mutex(pl_mutex *m);
 static void	destroy_message_queue(message_queue *queue);
+static void	destroy_thread_message_queue(message_queue *queue);
 static void	init_message_queue(message_queue *queue, long max_size);
 static void	freeThreadSignals(PL_local_data_t *ld);
 static void	unaliasThread(atom_t name);
@@ -504,6 +515,11 @@ freePrologThread(PL_local_data_t *ld, int after_fork)
     info->detached = TRUE;		/* cleanup */
   }
 
+#ifdef O_PROFILE
+  if ( ld->profile.active )
+    activateProfiler(FALSE, ld);
+#endif
+
   cleanupLocalDefinitions(ld);
   if ( ld->freed_clauses )
   { GET_LD
@@ -529,25 +545,28 @@ freePrologThread(PL_local_data_t *ld, int after_fork)
     assert(GD->statistics.threads_created - GD->statistics.threads_finished >= 1);
     GD->statistics.thread_cputime += time;
   }
-  destroy_message_queue(&ld->thread.messages);
+  destroy_thread_message_queue(&ld->thread.messages);
   if ( ld->btrace_store )
   { btrace_destroy(ld->btrace_store);
     ld->btrace_store = NULL;
   }
+#ifdef O_LOCALE
+  if ( ld->locale.current )
+    releaseLocale(ld->locale.current);
+#endif
   info->thread_data = NULL;
   info->has_tid = FALSE;		/* needed? */
   ld->thread.info = NULL;		/* avoid a loop */
   if ( !after_fork )
     UNLOCK();
 
-  if ( info->detached )
+  if ( info->detached || acknowledge )
     free_thread_info(info);
 
   freeHeap(ld, sizeof(*ld));
 
   if ( acknowledge )			/* == canceled */
-  { free_thread_info(info);
-    pthread_detach(pthread_self());
+  { pthread_detach(pthread_self());
     sem_post(sem_canceled_ptr);
   }
 }
@@ -1047,7 +1066,7 @@ retry:
 
 
 int
-PL_thread_self()
+PL_thread_self(void)
 { GET_LD
   PL_local_data_t *ld = LD;
 
@@ -1339,6 +1358,27 @@ start_thread(void *closure)
 }
 
 
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+The pthread stacksize must be  a  multiple   of  the  page  size on some
+systems. We do the rounding here. If we do not know the page size we use
+8192, which should typically be a multiple of the page size.
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+static size_t
+round_pages(size_t n)
+{ size_t psize;
+
+#if defined(HAVE_SYSCONF) && defined(_SC_PAGESIZE)
+  if ( (psize = sysconf(_SC_PAGESIZE)) == (size_t)-1 )
+    psize = 8192;
+#else
+  psize = 8192;
+#endif
+
+  return ROUND(n, psize);
+}
+
+
 word
 pl_thread_create(term_t goal, term_t id, term_t options)
 { GET_LD
@@ -1394,12 +1434,13 @@ pl_thread_create(term_t goal, term_t id, term_t options)
     return PL_error("thread_create", 3, NULL, ERR_UNINSTANTIATION, 2, id);
   }
 
-#define MK_KBYTES(v, n) if ( !mk_kbytes(&v, n PASS_LD) ) return FALSE
-
-  MK_KBYTES(info->local_size, ATOM_local);
-  MK_KBYTES(info->global_size, ATOM_global);
-  MK_KBYTES(info->trail_size, ATOM_trail);
-  MK_KBYTES(stack, ATOM_c_stack);
+  if ( !mk_kbytes(&info->local_size,  ATOM_local   PASS_LD) ||
+       !mk_kbytes(&info->global_size, ATOM_global  PASS_LD) ||
+       !mk_kbytes(&info->trail_size,  ATOM_trail   PASS_LD) ||
+       !mk_kbytes(&stack,             ATOM_c_stack PASS_LD) )
+  { free_thread_info(info);
+    return FALSE;
+  }
 
   if ( alias )
   { if ( !aliasThread(info->pl_tid, alias) )
@@ -1432,8 +1473,12 @@ pl_thread_create(term_t goal, term_t id, term_t options)
   ldnew->IO.input_stack		  = NULL;
   ldnew->IO.output_stack	  = NULL;
   ldnew->encoding		  = LD->encoding;
+#ifdef O_LOCALE
+  ldnew->locale.current		  = acquireLocale(LD->locale.current);
+#endif
   ldnew->_debugstatus		  = LD->_debugstatus;
   ldnew->_debugstatus.retryFrame  = NULL;
+  ldnew->_debugstatus.suspendTrace= 0;
   ldnew->prolog_flag.mask	  = LD->prolog_flag.mask;
   ldnew->prolog_flag.occurs_check = LD->prolog_flag.occurs_check;
   ldnew->prolog_flag.access_level = LD->prolog_flag.access_level;
@@ -1453,16 +1498,17 @@ pl_thread_create(term_t goal, term_t id, term_t options)
   }
   if ( rc == 0 )
   {
-#ifdef HAVE_GETRLIMIT
+#ifdef USE_COPY_STACK_SIZE
     struct rlimit rlim;
-    if ( getrlimit(RLIMIT_STACK, &rlim) == 0 )
+    if ( !stack && getrlimit(RLIMIT_STACK, &rlim) == 0 )
     { if ( rlim.rlim_cur != RLIM_INFINITY )
 	stack = rlim.rlim_cur;
 					/* What is an infinite stack!? */
     }
 #endif
     if ( stack )
-    { func = "pthread_attr_setstacksize";
+    { stack = round_pages(stack);
+      func = "pthread_attr_setstacksize";
       rc = pthread_attr_setstacksize(&attr, stack);
       info->stack_size = stack;
     } else
@@ -1910,6 +1956,7 @@ PRED_IMPL("thread_property", 2, thread_property, PL_FA_NONDETERMINISTIC)
       succeed;
     default:
       assert(0);
+      fail;
   }
 
 enumerate:
@@ -1957,30 +2004,6 @@ enumerate:
       }
     }
   }
-}
-
-
-/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sum the amount of heap allocated through all threads allocation-pools.
-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
-
-size_t
-threadLocalHeapUsed(void)
-{ int i;
-  PL_thread_info_t **info;
-  intptr_t heap = 0;
-
-  LOCK();
-  for(i=1, info=&GD->thread.threads[1]; i<=thread_highest_id; i++, info++)
-  { PL_local_data_t *ld;
-
-    if ( (ld = (*info)->thread_data) )
-    { heap += ld->alloc_pool.allocated;
-    }
-  }
-  UNLOCK();
-
-  return heap;
 }
 
 
@@ -2746,10 +2769,10 @@ called with queue->mutex locked.  It returns one of
 	* MSG_WAIT_DESTROYED
 	  Queue was destroyed while waiting
 
-(*) We need to lock because AGC asks us  to mark our atoms and then lets
-the thread continue. The thread may pick   a  message containing an atom
-from the queue, which now has not  been   marked  by us and is no longer
-part of the queue, so it isn't marked in the queue either.
+(*) We need  to lock  because AGC  marks our atoms  while the  thread is
+running.  The thread may pick   a  message containing  an atom  from the
+queue,  which now has not  been   marked  and is  no longer part  of the
+queue, so it isn't marked in the queue either.
 
 Note that we only need  this  for   queues  that  are  not associated to
 threads. Those associated with a thread  mark   both  the stacks and the
@@ -2773,29 +2796,45 @@ get_message(message_queue *queue, term_t msg, struct timespec *deadline ARG_LD)
     if ( queue->destroyed )
       return MSG_WAIT_DESTROYED;
 
-    DEBUG(MSG_THREAD, Sdprintf("%d: scanning queue\n", PL_thread_self()));
+    DEBUG(MSG_QUEUE,
+	  if ( queue->size > 0 )
+	    Sdprintf("%d: scanning queue (size=%ld)\n",
+		     PL_thread_self(), queue->size));
+
     for( ; msgp; prev = msgp, msgp = msgp->next )
     { int rc;
 
       if ( msgp->sequence_id < seen )
       { QSTAT(skipped);
+	DEBUG(MSG_QUEUE, Sdprintf("Already seen %ld (<%ld)\n",
+				  (long)msgp->sequence_id, (long)seen));
 	continue;
       }
       seen = msgp->sequence_id;
 
       if ( key && msgp->key && key != msgp->key )
+      { DEBUG(MSG_QUEUE, Sdprintf("Message key mismatch\n"));
 	continue;			/* fast search */
+      }
 
       QSTAT(unified);
       if ( !PL_recorded(msgp->message, tmp) )
         return raiseStackOverflow(GLOBAL_OVERFLOW);
       rc = PL_unify(msg, tmp);
+      DEBUG(MSG_QUEUE, { pl_writeln(tmp);
+			 pl_writeln(msg);
+		       });
 
       if ( rc )
-      { DEBUG(MSG_THREAD, Sdprintf("%d: match\n", PL_thread_self()));
+      { DEBUG(MSG_QUEUE, Sdprintf("%d: match\n", PL_thread_self()));
 
+      if (GD->atoms.gc_active)
+        markAtomsRecord(msgp->message);
+
+#ifdef O_ATOMGC
 	if ( queue->type == QTYPE_QUEUE )
-	  PL_LOCK(L_AGC);		/* See (*) */
+          simpleMutexLock(&queue->gc_mutex);
+#endif
 	if ( prev )
 	{ if ( !(prev->next = msgp->next) )
 	    queue->tail = prev;
@@ -2803,12 +2842,14 @@ get_message(message_queue *queue, term_t msg, struct timespec *deadline ARG_LD)
 	{ if ( !(queue->head = msgp->next) )
 	    queue->tail = NULL;
 	}
+#ifdef O_ATOMGC
 	if ( queue->type == QTYPE_QUEUE )
-	  PL_UNLOCK(L_AGC);
+          simpleMutexUnlock(&queue->gc_mutex);
+#endif
 	free_thread_message(msgp);
 	queue->size--;
 	if ( queue->wait_for_drain )
-	{ DEBUG(MSG_THREAD, Sdprintf("Queue drained. wakeup writers\n"));
+	{ DEBUG(MSG_QUEUE, Sdprintf("Queue drained. wakeup writers\n"));
 	  cv_signal(&queue->drain_var);
 	}
 
@@ -2822,7 +2863,7 @@ get_message(message_queue *queue, term_t msg, struct timespec *deadline ARG_LD)
 
     queue->waiting++;
     queue->waiting_var += isvar;
-    DEBUG(MSG_THREAD, Sdprintf("%d: waiting on queue\n", PL_thread_self()));
+    DEBUG(MSG_QUEUE_WAIT, Sdprintf("%d: waiting on queue\n", PL_thread_self()));
     switch ( dispatch_cond_wait(queue, QUEUE_WAIT_READ, deadline) )
     { case EINTR:
       { DEBUG(9, Sdprintf("%d: EINTR\n", PL_thread_self()));
@@ -2845,11 +2886,12 @@ get_message(message_queue *queue, term_t msg, struct timespec *deadline ARG_LD)
 	return MSG_WAIT_TIMEOUT;
       }
       case 0:
+	DEBUG(MSG_QUEUE_WAIT,
+	      Sdprintf("%d: wakeup on queue\n", PL_thread_self()));
 	break;
       default:
 	assert(0);
     }
-    DEBUG(MSG_THREAD, Sdprintf("%d: wakeup on queue\n", PL_thread_self()));
     queue->waiting--;
     queue->waiting_var -= isvar;
   }
@@ -2907,9 +2949,39 @@ destroy_message_queue(message_queue *queue)
   }
 
   simpleMutexDelete(&queue->mutex);
+  simpleMutexDelete(&queue->gc_mutex);
   cv_destroy(&queue->cond_var);
   if ( queue->max_size > 0 )
     cv_destroy(&queue->drain_var);
+}
+
+
+/* destroy the input queue of a thread.  We have to take care of the case
+   where our input queue is been waited for by another thread.  This is
+   similar to message_queue_destroy/1.
+ */
+
+static void
+destroy_thread_message_queue(message_queue *q)
+{ int done = FALSE;
+
+  if (!q->initialized )
+    return;
+
+  while(!done)
+  { simpleMutexLock(&q->mutex);
+    q->destroyed = TRUE;
+    if ( q->waiting || q->wait_for_drain )
+    { if ( q->waiting )
+	cv_broadcast(&q->cond_var);
+      if ( q->wait_for_drain )
+	cv_broadcast(&q->drain_var);
+    } else
+      done = TRUE;
+    simpleMutexUnlock(&q->mutex);
+  }
+
+  destroy_message_queue(q);
 }
 
 
@@ -2917,6 +2989,7 @@ static void
 init_message_queue(message_queue *queue, long max_size)
 { memset(queue, 0, sizeof(*queue));
   simpleMutexInit(&queue->mutex);
+  simpleMutexInit(&queue->gc_mutex);
   cv_init(&queue->cond_var, NULL);
   queue->max_size = max_size;
   if ( queue->max_size > 0 )
@@ -3391,6 +3464,7 @@ PRED_IMPL("message_queue_property", 2, message_property, PL_FA_NONDETERMINISTIC)
       succeed;
     default:
       assert(0);
+      fail;
   }
 
 enumerate:
@@ -3439,6 +3513,8 @@ enumerate:
 
 	if ( state != &statebuf )
 	  free_qstate(state);
+        else if ( state->e )
+          freeTableEnum(state->e);
 	succeed;
       }
 
@@ -3446,6 +3522,8 @@ enumerate:
       { error:
 	if ( state != &statebuf )
 	  free_qstate(state);
+        else if ( state->e )
+          freeTableEnum(state->e);
 	fail;
       }
     }
@@ -3734,10 +3812,10 @@ allocSimpleMutex(const char *name)
     m->name = store_string(name);
   else
     m->name = NULL;
-  LOCK();
+  PL_LOCK(L_MUTEX);
   m->next = GD->thread.mutexes;
   GD->thread.mutexes = m;
-  UNLOCK();
+  PL_UNLOCK(L_MUTEX);
 
   return m;
 }
@@ -3748,7 +3826,7 @@ freeSimpleMutex(counting_mutex *m)
 { counting_mutex *cm;
 
   simpleMutexDelete(&m->mutex);
-  LOCK();
+  PL_LOCK(L_MUTEX);
   if ( m == GD->thread.mutexes )
   { GD->thread.mutexes = m->next;
   } else
@@ -3757,7 +3835,7 @@ freeSimpleMutex(counting_mutex *m)
 	cm->next = m->next;
     }
   }
-  UNLOCK();
+  PL_UNLOCK(L_MUTEX);
 
   remove_string((char *)m->name);
   freeHeap(m, sizeof(*m));
@@ -4226,6 +4304,7 @@ PRED_IMPL("mutex_property", 2, mutex_property, PL_FA_NONDETERMINISTIC)
       succeed;
     default:
       assert(0);
+      fail;
   }
 
 enumerate:
@@ -4343,6 +4422,9 @@ PL_thread_attach_engine(PL_thread_attr_t *attr)
   ldnew->IO.input_stack		 = NULL;
   ldnew->IO.output_stack	 = NULL;
   ldnew->encoding		 = ldmain->encoding;
+#ifdef O_LOCALE
+  ldnew->locale.current		 = acquireLocale(ldmain->locale.current);
+#endif
   ldnew->_debugstatus		 = ldmain->_debugstatus;
   ldnew->_debugstatus.retryFrame = NULL;
   ldnew->prolog_flag.mask	 = ldmain->prolog_flag.mask;
@@ -4360,13 +4442,23 @@ PL_thread_attach_engine(PL_thread_attr_t *attr)
     return -1;
   }
   set_system_thread_id(info);
-  if ( attr && attr->alias )
-  { if ( !aliasThread(info->pl_tid, PL_new_atom(attr->alias)) )
-    { free_thread_info(info);
-      errno = EPERM;
-      return -1;
+
+  if ( attr )
+  { if ( attr->alias )
+    { if ( !aliasThread(info->pl_tid, PL_new_atom(attr->alias)) )
+      { free_thread_info(info);
+	errno = EPERM;
+	return -1;
+      }
+    }
+    if ( true(attr, PL_THREAD_NO_DEBUG) )
+    { ldnew->_debugstatus.tracing   = FALSE;
+      ldnew->_debugstatus.debugging = DBG_OFF;
+      set(&ldnew->prolog_flag.mask, PLFLAG_LASTCALL);
     }
   }
+
+  updateAlerted(ldnew);
   PL_call_predicate(MODULE_system, PL_Q_NORMAL, PROCEDURE_dthread_init0, 0);
 
   return info->pl_tid;
@@ -5331,6 +5423,28 @@ forThreadLocalData(void (*func)(PL_local_data_t *), unsigned flags)
 
 #endif /*__WINDOWS__*/
 
+void
+forThreadLocalDataUnsuspended(void (*func)(PL_local_data_t *), unsigned flags)
+{ int me = PL_thread_self();
+  PL_thread_info_t **th;
+
+  for( th = &GD->thread.threads[1];
+       th <= &GD->thread.threads[thread_highest_id];
+       th++ )
+  { PL_thread_info_t *info = *th;
+
+    if ( info->thread_data && info->pl_tid != me &&
+	 info->status == PL_THREAD_RUNNING )
+    { PL_local_data_t *ld = info->thread_data;
+        (*func)(ld);
+
+    }
+  }
+
+  DEBUG(MSG_THREAD, Sdprintf(" All done!\n"));
+
+}
+
 
 		 /*******************************
 		 *	 ATOM MARK SUPPORT	*
@@ -5353,9 +5467,11 @@ static void
 markAtomsMessageQueue(message_queue *queue)
 { thread_message *msg;
 
+  simpleMutexLock(&queue->gc_mutex);
   for(msg=queue->head; msg; msg=msg->next)
   { markAtomsRecord(msg->message);
   }
+  simpleMutexUnlock(&queue->gc_mutex);
 }
 
 
@@ -5443,7 +5559,7 @@ localiseDefinition(Definition def)
 
   *local = *def;
   local->mutex = NULL;
-  clear(local, P_THREAD_LOCAL);		/* remains DYNAMIC */
+  clear(local, P_THREAD_LOCAL);		/* remains P_DYNAMIC */
   local->impl.clauses.first_clause = NULL;
   local->impl.clauses.clause_indexes = NULL;
 
@@ -5473,6 +5589,50 @@ cleanupLocalDefinitions(PL_local_data_t *ld)
     destroyLocalDefinition(def, id);
     freeHeap(ch, sizeof(*ch));
   }
+}
+
+
+/** '"$thread_local_clause_count'(:Head, +Thread, -NumberOfClauses) is semidet.
+
+True when NumberOfClauses is the number  of clauses for the thread-local
+predicate Head in Thread.  Fails silently if
+
+  - Head does not refer to an existing predicate
+  - The predicate exists, but is not thread local (should
+    this be an error?)
+  - The thread does not exist
+  - The definition was never localised for Thread. One
+    could argue to return 0 for this case.
+
+@author	Keri Harris
+*/
+
+static
+PRED_IMPL("$thread_local_clause_count", 3, thread_local_clause_count, 0)
+{ PRED_LD
+  Procedure proc;
+  Definition def;
+  PL_thread_info_t *info;
+  int number_of_clauses = 0;
+
+  term_t pred = A1;
+  term_t thread = A2;
+  term_t count  = A3;
+
+  if ( !get_procedure(pred, &proc, 0, GP_RESOLVE) )
+    fail;
+
+  def = proc->definition;
+  if ( false(def, P_THREAD_LOCAL) )
+    fail;
+
+  if ( !get_thread_sync(thread, &info, FALSE) )
+    fail;
+
+  if ( (def = getProcDefinitionForThread(proc->definition, info->pl_tid)) )
+    number_of_clauses = def->impl.clauses.number_of_clauses;
+
+  return PL_unify_integer(count, number_of_clauses);
 }
 
 
@@ -5633,5 +5793,6 @@ BeginPredDefs(thread)
   PRED_DEF("mutex_create", 1, mutex_create1, 0)
   PRED_DEF("mutex_create", 2, mutex_create2, PL_FA_ISO)
   PRED_DEF("mutex_property", 2, mutex_property, PL_FA_NONDETERMINISTIC|PL_FA_ISO)
+  PRED_DEF("$thread_local_clause_count", 3, thread_local_clause_count, 0)
 #endif
 EndPredDefs

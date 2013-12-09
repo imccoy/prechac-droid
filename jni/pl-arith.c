@@ -3,7 +3,7 @@
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@cs.vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (C): 1985-2012, University of Amsterdam
+    Copyright (C): 1985-2013, University of Amsterdam
 			      VU University Amsterdam
 
     This library is free software; you can redistribute it and/or
@@ -37,10 +37,7 @@ in this array.
 
 /*#define O_DEBUG 1*/
 #include "pl-incl.h"
-#undef abs			/* avoid abs() problem with MSVC++ */
 #include <math.h>
-#undef abs
-#define abs(a) ((a) < 0 ? -(a) : (a))
 #include <limits.h>
 #ifdef HAVE_FLOAT_H
 #include <float.h>
@@ -102,7 +99,6 @@ problem.
 #endif
 #endif
 
-static int		getCharExpression(Word p, Number r ARG_LD);
 static int		ar_minus(Number n1, Number n2, Number r);
 
 
@@ -284,7 +280,7 @@ var_or_integer(term_t t, number *n, int which, int *mask ARG_LD)
     *mask |= which;
     succeed;
   }
-  if ( isVar(*p) )
+  if ( canBind(*p) )
     succeed;
 
   return PL_error(NULL, 0, NULL, ERR_TYPE, ATOM_integer, t);
@@ -646,7 +642,7 @@ pushForMark(segstack *stack, Word p, int wr)
 
 static void
 popForMark(segstack *stack, Word *pp, int *wr)
-{ word w;
+{ word w = 0;
 
   popSegStack(stack, &w, word);
   *wr = w & (word)0x1;
@@ -706,6 +702,10 @@ valueExpression(term_t expr, number *result ARG_LD)
 	}
 	break;
       }
+      case TAG_STRING:
+	if ( getCharExpression(p, n PASS_LD) != TRUE )
+	  goto error;
+        break;
       case TAG_COMPOUND:
       { Functor term = valueTerm(*p);
 	int arity;
@@ -901,29 +901,58 @@ arithChar(Word p ARG_LD)
 }
 
 
-static int
+int
 getCharExpression(Word p, Number r ARG_LD)
-{ Word a;
-  int chr;
+{ word w = *p;
 
-  deRef(p);
+  switch(tag(w))
+  { case TAG_STRING:
+    { size_t len;
 
-  a = argTermP(*p, 0);
-  if ( (chr = arithChar(a PASS_LD)) == EOF )
-    fail;
+      if ( isBString(w) )
+      { char *s = getCharsString(w, &len);
 
-  a = argTermP(*p, 1);
-  if ( !isNil(*a) )
-  { PL_error(".", 2, "\"x\" must hold one character", ERR_TYPE,
-	     ATOM_nil, pushWordAsTermRef(a));
-    popTermRef();
-    return FALSE;
+	if ( len == 1 )
+	{ r->value.i = s[0]&0xff;
+	  r->type = V_INTEGER;
+	  return TRUE;
+	}
+      } else
+      { pl_wchar_t *ws = getCharsWString(w, &len);
+
+	if ( len == 1 )
+	{ r->value.i = ws[0];
+	  r->type = V_INTEGER;
+	  return TRUE;
+	}
+      }
+
+    len_not_one:
+      PL_error(NULL, 0, "\"x\" must hold one character", ERR_TYPE,
+		 ATOM_nil, pushWordAsTermRef(p));
+      popTermRef();
+      return FALSE;
+    }
+    case TAG_COMPOUND:
+    { Word a = argTermP(w, 0);
+      int chr;
+
+      if ( (chr = arithChar(a PASS_LD)) == EOF )
+	fail;
+
+      a = argTermP(w, 1);
+      if ( !isNil(*a) )
+	goto len_not_one;
+
+      r->value.i = chr;
+      r->type = V_INTEGER;
+
+      return TRUE;
+    }
+    default:
+      assert(0);
+      return FALSE;
   }
-
-  r->value.i = chr;
-  r->type = V_INTEGER;
-
-  succeed;
 }
 
 
@@ -1019,7 +1048,7 @@ promoteIntNumber(Number n)
   GET_LD
 
     if ( truePrologFlag(PLFLAG_ISO) )
-      return PL_error("+", 2, NULL, ERR_EVALUATION, ATOM_int_overflow);
+      return PL_error(NULL, 0, NULL, ERR_EVALUATION, ATOM_int_overflow);
 
   return promoteToFloatNumber(n);
 #endif
@@ -1227,7 +1256,10 @@ ar_mod(Number n1, Number n2, Number r)
       if ( n2->value.i == 0 )
 	return PL_error("mod", 2, NULL, ERR_DIV_BY_ZERO);
 
-      r->value.i = mod(n1->value.i, n2->value.i);
+      if ( n2->value.i != -1 || n1->value.i != INT64_MIN )
+	r->value.i = mod(n1->value.i, n2->value.i);
+      else
+	r->value.i = 0;
       r->type = V_INTEGER;
       break;
 #ifdef O_GMP
@@ -1348,7 +1380,7 @@ ar_shift(Number n1, Number n2, Number r, int dir)
 	}
       } else
       { if ( shift >= (long)sizeof(int64_t)*8 )
-	  r->value.i = (r->value.i >= 0 ? 0 : -1);
+	  r->value.i = (n1->value.i >= 0 ? 0 : -1);
 	else
 	  r->value.i = n1->value.i >> shift;
       }
@@ -1525,8 +1557,17 @@ ar_gcd(Number n1, Number n2, Number r)
 UNAIRY_FLOAT_FUNCTION(ar_sin, sin)
 UNAIRY_FLOAT_FUNCTION(ar_cos, cos)
 UNAIRY_FLOAT_FUNCTION(ar_tan, tan)
+UNAIRY_FLOAT_FUNCTION(ar_sinh, sinh)
+UNAIRY_FLOAT_FUNCTION(ar_cosh, cosh)
+UNAIRY_FLOAT_FUNCTION(ar_tanh, tanh)
+UNAIRY_FLOAT_FUNCTION(ar_asinh, asinh)
+UNAIRY_FLOAT_FUNCTION(ar_acosh, acosh)
+UNAIRY_FLOAT_FUNCTION(ar_atanh, atanh)
 UNAIRY_FLOAT_FUNCTION(ar_atan, atan)
 UNAIRY_FLOAT_FUNCTION(ar_exp, exp)
+UNAIRY_FLOAT_FUNCTION(ar_erf, erf)
+UNAIRY_FLOAT_FUNCTION(ar_erfc, erfc)
+UNAIRY_FLOAT_FUNCTION(ar_lgamma, lgamma)
 
 BINAIRY_FLOAT_FUNCTION(ar_atan2, atan2)
 
@@ -1789,9 +1830,9 @@ Result is rnd_i(IntExpr1/IntExpr2), rounded towards -infinity
 static int
 ar_div(Number n1, Number n2, Number r)
 { if ( !toIntegerNumber(n1, 0) )
-    return PL_error("//", 2, NULL, ERR_AR_TYPE, ATOM_integer, n1);
+    return PL_error("div", 2, NULL, ERR_AR_TYPE, ATOM_integer, n1);
   if ( !toIntegerNumber(n2, 0) )
-    return PL_error("//", 2, NULL, ERR_AR_TYPE, ATOM_integer, n2);
+    return PL_error("div", 2, NULL, ERR_AR_TYPE, ATOM_integer, n2);
 
 #ifdef O_GMP
   if ( n1->type == V_INTEGER && n2->type == V_INTEGER )
@@ -1800,7 +1841,10 @@ ar_div(Number n1, Number n2, Number r)
       return PL_error("div", 2, NULL, ERR_DIV_BY_ZERO);
 
     if ( !(n2->value.i == -1 && n1->value.i == PLMININT) )
-    { r->value.i = (n1->value.i - mod(n1->value.i, n2->value.i)) / n2->value.i;
+    { r->value.i = n1->value.i / n2->value.i;
+      if ((n1->value.i > 0) != (n2->value.i > 0) &&
+          n1->value.i % n2->value.i != 0)
+        --r->value.i;
       r->type = V_INTEGER;
 
       succeed;
@@ -1812,7 +1856,7 @@ ar_div(Number n1, Number n2, Number r)
   promoteToMPZNumber(n2);
 
   if ( mpz_sgn(n2->value.mpz) == 0 )
-    return PL_error("//", 2, NULL, ERR_DIV_BY_ZERO);
+    return PL_error("div", 2, NULL, ERR_DIV_BY_ZERO);
 
   r->type = V_MPZ;
   mpz_init(r->value.mpz);
@@ -1824,6 +1868,13 @@ ar_div(Number n1, Number n2, Number r)
 #endif
 }
 
+/* Broken, at least on SunOS 5.11, gcc 4.8.  No clue under what conditions.
+   The results of configure and final linking differ.  Anyway, just doing
+   our own is most likely the safe solution.
+ */
+#ifdef __sun
+#undef HAVE_SIGNBIT
+#endif
 
 #ifndef HAVE_SIGNBIT				/* differs for -0.0 */
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1953,7 +2004,10 @@ ar_rem(Number n1, Number n2, Number r)
       if ( n2->value.i == 0 )
 	return PL_error("rem", 2, NULL, ERR_DIV_BY_ZERO);
 
-      r->value.i = n1->value.i % n2->value.i;
+      if ( n2->value.i != -1 || n1->value.i != INT64_MIN )
+	r->value.i = n1->value.i % n2->value.i;
+      else
+	r->value.i = 0;
       r->type = V_INTEGER;
 
       break;
@@ -1996,6 +2050,22 @@ Method for Robust Geometric Algorithms'' by John Canny, Bruce Donald and
 Eugene K. Ressler.  Found at
 
 http://www.cs.dartmouth.edu/~brd/papers/rotations-scg92.pdf
+
+(*) Comment by Keri Harris:
+
+The result of p1/q1 is retained  in  a   FP  stack  register at a higher
+precision (80 bits); it  is  not  stored   in  a  variable.  This  extra
+precision skews the results when  preforming   the  subtraction,  as one
+operand contains extra precision:
+
+        (extended double precision)     (double precision)
+    d =           p1/q1              -     n1->value.f;
+
+Forcing the result of p1/q1 to be stored in a variable produces expected
+results with rationalize/1:
+
+    volatile double p1_q1 = p1/q1;
+    d = p1_q1 - n1->value.f;
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #ifndef DBL_EPSILON			/* normal for IEEE 64-bit double */
@@ -2019,6 +2089,7 @@ ar_rationalize(Number n1, Number r)
       do
       { double r = floor(e0/e1);
 	double e00 = e0, p00 = p0, q00 = q0;
+	volatile double p1_q1;		/* see (*) */
 
 	e0 = e1;
 	p0 = p1;
@@ -2030,8 +2101,9 @@ ar_rationalize(Number n1, Number r)
 	DEBUG(2, Sdprintf("e = %.20f, r = %f, p1/q1 = %f/%f\n",
 			  DBL_EPSILON, r, p1, q1));
 
-	d = p1/q1 - n1->value.f;
-      } while(abs(d) > DBL_EPSILON);
+	p1_q1 = p1/q1;
+	d = p1_q1 - n1->value.f;
+      } while(fabs(d) > DBL_EPSILON);
 
       r->type = V_MPQ;
       mpz_init_set_d(mpq_numref(r->value.mpq), p1);
@@ -2553,7 +2625,7 @@ ar_abs(Number n1, Number r)
 #endif
 	/*FALLTHROUGH*/
       } else
-      { r->value.i = abs(n1->value.i);
+      { r->value.i = llabs(n1->value.i);
 	r->type = V_INTEGER;
 	break;
       }
@@ -3306,8 +3378,8 @@ static const ar_funcdef ar_funcdefs[] = {
 
   ADD(FUNCTOR_mod2,		ar_mod, F_ISO),
   ADD(FUNCTOR_rem2,		ar_rem, F_ISO),
-  ADD(FUNCTOR_div2,		ar_div, F_ISO),
-  ADD(FUNCTOR_gdiv2,		ar_tdiv, 0),
+  ADD(FUNCTOR_div2,		ar_div, F_ISO),		/* div/2 */
+  ADD(FUNCTOR_gdiv2,		ar_tdiv, 0),		/* (//)/2 */
   ADD(FUNCTOR_gcd2,		ar_gcd, 0),
   ADD(FUNCTOR_sign1,		ar_sign, F_ISO),
 
@@ -3343,7 +3415,16 @@ static const ar_funcdef ar_funcdefs[] = {
   ADD(FUNCTOR_atan1,		ar_atan, F_ISO),
   ADD(FUNCTOR_atan2,		ar_atan2, 0),
   ADD(FUNCTOR_atan22,		ar_atan2, F_ISO),
+  ADD(FUNCTOR_sinh1,		ar_sinh, 0),
+  ADD(FUNCTOR_cosh1,		ar_cosh, 0),
+  ADD(FUNCTOR_tanh1,		ar_tanh, 0),
+  ADD(FUNCTOR_asinh1,		ar_asinh, 0),
+  ADD(FUNCTOR_acosh1,		ar_acosh, 0),
+  ADD(FUNCTOR_atanh1,		ar_atanh, 0),
+  ADD(FUNCTOR_lgamma1,		ar_lgamma, 0),
   ADD(FUNCTOR_log1,		ar_log, F_ISO),
+  ADD(FUNCTOR_erf1,		ar_erf, 0),
+  ADD(FUNCTOR_erfc1,		ar_erfc, 0),
   ADD(FUNCTOR_exp1,		ar_exp, F_ISO),
   ADD(FUNCTOR_log101,		ar_log10, 0),
   ADD(FUNCTOR_hat2,		ar_pow, F_ISO),
@@ -3541,6 +3622,7 @@ PL_eval_expression_to_int64_ex(term_t t, int64_t *val)
 #endif
 	default:
 	  assert(0);
+          return FALSE;
       }
     } else
     { rval = PL_error(NULL, 0, NULL, ERR_TYPE, ATOM_integer_expression, t);

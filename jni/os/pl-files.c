@@ -256,7 +256,7 @@ DeRefLink1(const char *f, char *lbuf)
 	q--;
       strcpy(q, l);
 
-      canoniseFileName(lbuf);
+      canonicaliseFileName(lbuf);
 
       return lbuf;
     }
@@ -481,14 +481,13 @@ get_file_name(term_t n, char **namep, char *tmp, int flags)
 
   chflags = CVT_FILENAME;
   if ( !(flags&(REP_UTF8|REP_MB)) )
-    chflags |= REP_UTF8;
+    chflags |= REP_FN;
   if ( !(flags & PL_FILE_NOERRORS) )
     chflags |= CVT_EXCEPTION;
   if ( !PL_get_nchars(n, &len, &name, chflags) )
     return FALSE;
   if ( strlen(name) != len )
   { code0:
-    fprintf(stderr, "strlen = %d, len var = %d, in '%s'\n", strlen(name), len, name);
     return PL_error(NULL, 0, "file name contains a 0-code",
 		    ERR_DOMAIN, ATOM_file_name, n);
   }
