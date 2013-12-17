@@ -1,32 +1,32 @@
 package com.fineshambles.prechacthis;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.Hashtable;
-
-import jpl.Atom;
-import jpl.Compound;
-import jpl.JPL;
-import jpl.Query;
-import jpl.Term;
-import jpl.Util;
-import static jpl.Util.termArrayToList;
-import jpl.Variable;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
-import android.util.Log;
+import android.view.DragEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View.OnDragListener;
+import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemSelectedListener;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.SeekBar;
+import android.widget.SeekBar.OnSeekBarChangeListener;
+import android.widget.Spinner;
+import android.widget.TextView;
 
-public class PrechacThisActivity extends Activity
+public class PrechacThisActivity extends Activity implements OnClickListener
 {
+	private Spinner numberObjects;
+	private Spinner numberPeople;
+	private Button goButton;
+	private Spinner maxHeight;
+	private Spinner period;
+	private SeekBar minPasses;
+	private SeekBar maxPasses;
+	private TextView minPassesDisplay;
+	private TextView maxPassesDisplay;
 	
     /** Called when the activity is first created. */
     @Override
@@ -35,157 +35,117 @@ public class PrechacThisActivity extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
         
-        tryProlog();
-    }
-    public void tryProlog() {
-    	if (!init()) {
-			new AlertDialog.Builder(this).
-			      setMessage("My world is falling apart. Sorry").
-			      setCancelable(false).
-			      show();
-			this.finish();
-		}
-		
-		// find_siteswaps(SiteswapList, 2, 4, 6, 3, 2, 2, [],[],[],[],[],[],0,R),[Flag,Time,Objects,Length,X] = SiteswapList.
+		this.numberObjects = (Spinner)findViewById(R.id.number_objects);
+        this.numberPeople = (Spinner)findViewById(R.id.number_people);
+        this.maxHeight = (Spinner)findViewById(R.id.max_height);
+        this.period = (Spinner)findViewById(R.id.period);
+        this.goButton = (Button)findViewById(R.id.go);
+        this.minPasses = (SeekBar)findViewById(R.id.min_passes);
+        this.maxPasses = (SeekBar)findViewById(R.id.max_passes);
+        this.minPassesDisplay = (TextView)findViewById(R.id.min_passes_display);
+        this.maxPassesDisplay = (TextView)findViewById(R.id.max_passes_display);
+        
+        final int PERIOD_DEFAULT_INDEX = 3;
+        
+        numberPeople.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5));
+        numberPeople.setSelection(getStateInt(savedInstanceState, "NUMBER_PEOPLE", 0));
+        
+        numberObjects.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5, 6, 7, 8, 9, 10));
+        numberObjects.setSelection(getStateInt(savedInstanceState, "NUMBER_OBJECTS", 2));
+        
+        maxHeight.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5, 6, 7, 8));
+        maxHeight.setSelection(getStateInt(savedInstanceState, "MAX_HEIGHT", 3));
+        
+        period.setOnItemSelectedListener(new OnItemSelectedListener() {
 
-		Variable siteswapList = new Variable("SiteswapList");
-		Term emptyList = Util.textToTerm("[]");
-		Query query = new Query("siteswap", new Term[] { siteswapList,
-				new jpl.Integer(2), // jugglers
-				new jpl.Integer(4), // objects
-				new jpl.Integer(6), // length
-				new jpl.Integer(3), // max height
-				new jpl.Integer(2), // min passes
-				new jpl.Integer(2), // max passes
-				emptyList, // contain
-				emptyList, // don't contain
-				emptyList, // club does
-				emptyList, // react
-				emptyList, //sync
-				emptyList, // just
-				new jpl.Integer(0), //contain magic
-				});
-		while (query.hasMoreSolutions()) {
-			Hashtable solution = query.nextSolution();
-			if (solution.size() == 0)
-				continue;
-			Term binding = (Term)solution.get(siteswapList.name);
-			Term[] bindings = Util.listToTermArray(binding);
-			Log.e(this.getClass().getName(), "FLAG " + bindings[0]);
-			Log.e(this.getClass().getName(), "Time " + bindings[1]);
-			Log.e(this.getClass().getName(), "Objects " + bindings[2]);
-			Log.e(this.getClass().getName(), "Length " + bindings[3]);
-			Log.e(this.getClass().getName(), "X " + bindings[4]);
-			Log.e(this.getClass().getName(), "Y " + bindings[5]);
+			public void onItemSelected(AdapterView<?> arg0, View arg1,
+					int position, long id) {
+				periodChanged((Integer)period.getItemAtPosition(position));
+				
+			}
 
-		}
+			public void onNothingSelected(AdapterView<?> arg0) {
+				period.setSelection(PERIOD_DEFAULT_INDEX);
+			}
+        	
+        });
+        period.setAdapter(this.<Integer>arrayOptions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+        period.setSelection(getStateInt(savedInstanceState, "PERIOD", PERIOD_DEFAULT_INDEX));
+
+        maxPasses.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
+			public void onProgressChanged(SeekBar arg0, int progress, boolean fromUser) {
+				maxPassesChanged(progress);
+			}
+
+			public void onStartTrackingTouch(SeekBar arg0) {}
+
+			public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        minPasses.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
+			public void onProgressChanged(SeekBar arg0, int progress, boolean fromUser) {
+				minPassesChanged(progress);
+			}
+
+			public void onStartTrackingTouch(SeekBar arg0) {}
+
+			public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        maxPasses.setProgress(getStateInt(savedInstanceState, "MAX_PASSES", PERIOD_DEFAULT_INDEX));
+        minPasses.setProgress(getStateInt(savedInstanceState, "MIN_PASSES", 1));
+
+        
+        goButton.setOnClickListener(this);
     }
     
-    private boolean init() {
-    	return initProlog() && initPrechacThis();
+    private int getStateInt(Bundle savedInstanceState, String key, int def) {
+    	if (savedInstanceState == null)
+    		return def;
+    	return savedInstanceState.getInt(key, def);
+	}
+
+	protected void minPassesChanged(int progress) {
+		minPassesDisplay.setText("At least " + progress + " pass" + (progress != 1 ? "es" : ""));
+	}
+
+	protected void maxPassesChanged(int progress) {
+		maxPassesDisplay.setText("and at most " + progress + " pass" + (progress != 1 ? "es" : ""));
+		minPasses.setMax(progress);
+	}
+
+	protected void periodChanged(Integer period) {
+		maxPasses.setMax(period.intValue() + 1); // the +1 is because the seek bar doesn't let you
+		                                         // seek to the end, but we want to allow every
+		                                         // throw to be a pass
+	}
+
+	@Override
+    protected void onSaveInstanceState(Bundle outState) {
+    	super.onSaveInstanceState(outState);
+    	outState.putInt("NUMBER_OBJECTS", (Integer)this.numberObjects.getSelectedItem());
+		outState.putInt("NUMBER_PEOPLE", (Integer)this.numberPeople.getSelectedItem());
+		outState.putInt("MAX_HEIGHT", (Integer)this.maxHeight.getSelectedItem());
+		outState.putInt("PERIOD", (Integer)this.period.getSelectedItem());
+		outState.putInt("MAX_PASSES", this.maxPasses.getProgress());
+		outState.putInt("MIN_PASSES", this.minPasses.getProgress());
     }
 
-	private boolean initProlog() {
-		try {
-			  // path must be the filename of a 32-bit boot.prc.
-			  // There are two possible approaches. First, compile swipl somthing like:                                                                                      
-			  //   export CFLAGS="-march=i686 -m32"                                                       
-			  //   export LDFLAGS="-m32"                                                                  
-			  //   ./configure --host=i386 --build=i386 --disable-readline --without-readline --without-gmp --disable-gmp
-			  //   make                                                                                   
-			  // then nab swipl-32.prc
-			
-			  // or put swi-pl's /boot directory in /sdcard/swi-boot, then cause this code to run:
-              //	JPL.setNativeLibraryName("swipl");
-              //	JPL.init(new String[] { "swipl", "-O", "-o", "/sdcard/boot32.prc", "-b", "/sdcard/swi-boot/init.pl" });
-			  // and grab /sdcard/boot32.prc afterwards.
-			  // You'll need to make sure your rc/build.c's rc_save_archive says
-			  //    sprintf(tmp, "/sdcard/__tmp%d.prc", (int)getpid());
-			  // and not
-			  //    sprintf(tmp, "__tmp%d.prc", (int)getpid());
-			  // JPL.init will exit the process once the boot file is built, so don't freak out when that happens.
-			
-			String path = extractBootFile();
-			JPL.setNativeLibraryName("swipl");
-			JPL.init(makeArgs(path));
-			//
-		} catch (FileNotFoundException e) {
-			Log.e(this.getClass().getName(), "trouble extracting boot file", e);
-			return false;
-		} catch (IOException e) {
-			Log.e(this.getClass().getName(), "trouble extracting boot file", e);
-			return false;
-		}
-		return true;
-	}
-
-	private String[] makeArgs(String path) {
-		String[] defaultArgs = JPL.getDefaultInitArgs();
-		String[] args = new String[defaultArgs.length];
-		args[0] = path;
-		for (int i = 1; i < defaultArgs.length; i++) {
-			args[i] = defaultArgs[i];
-		}
-		return args;
-	}
-
-	
-	private boolean initPrechacThis() {
-		try {
-			String filename = extractPlFile();
-			
-			Query query = new Query("load_files", new Term[] {
-					new Atom(filename),
-					new Compound(".", new Term[] {
-							new Compound("imports", new Term[] { new Compound(".", new Term[] {
-									new Atom("siteswap"),
-									new Atom("[]")
-							})}),
-							new Atom("[]")
-					})
-			});
-			query.hasSolution();
-		} catch (FileNotFoundException e) {
-			Log.e(this.getClass().getName(), "trouble extracting pl file", e);
-			return false;
-		} catch (IOException e) {
-			Log.e(this.getClass().getName(), "trouble extracting pl file", e);
-			return false;
-		}
-		return true;
-	}
-
-	private String extractBootFile() throws FileNotFoundException, IOException {
-		return extractResourceToContextDir("boot", "boot32.prc", R.raw.boot32);
+	private <T> ArrayAdapter<T> arrayOptions( T... options) {
+		return new ArrayAdapter<T>(this, R.layout.plain_text_view, options);
 	}
 	
-	private String extractPlFile() throws FileNotFoundException, IOException {
-		return extractResourceToContextDir("pl", "prechacthis.pl", R.raw.prechacthis);
-	}
+	
 
-	private String extractResourceToContextDir(String contextDir,
-			String fileName, int resourceId) throws FileNotFoundException,
-			IOException {
-		Context context = this;
-        File bootFileDir = context.getDir(contextDir, 0);
-		File bootFile = new File(bootFileDir, fileName);
-		extractRawResource(bootFile, resourceId);
-        return bootFile.getAbsolutePath();
+	public void onClick(View v) {
+		Intent intent = new Intent();
+		intent.setClass(this, SearchActivity.class);
+		intent.setAction("PRECHACTHIS_SEARCH");
+		intent.putExtra("NUMBER_OBJECTS", (Integer)this.numberObjects.getSelectedItem());
+		intent.putExtra("NUMBER_PEOPLE", (Integer)this.numberPeople.getSelectedItem());
+		intent.putExtra("MAX_HEIGHT", (Integer)this.maxHeight.getSelectedItem());
+		intent.putExtra("PERIOD", (Integer)this.period.getSelectedItem());
+		intent.putExtra("MAX_PASSES", this.maxPasses.getProgress());
+		intent.putExtra("MIN_PASSES", this.minPasses.getProgress());
+		this.startActivity(intent);
 	}
-
-	private void extractRawResource(File bootFile, int id)
-			throws FileNotFoundException, IOException {
-		final int BUF_SIZE = 1024 * 8;
-        BufferedInputStream assetInS = new BufferedInputStream(
-            getResources().openRawResource(id));
-        BufferedOutputStream assetOutS = new BufferedOutputStream(
-            new FileOutputStream(bootFile));
-        int n = 0;
-        byte[] b = new byte[BUF_SIZE];
-        while ((n = assetInS.read(b, 0, b.length)) != -1) {
-            assetOutS.write(b, 0, n);
-        }
-        assetInS.close();
-        assetOutS.close();
-	}
+ 
 }

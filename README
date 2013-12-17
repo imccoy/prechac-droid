@@ -9,16 +9,27 @@ combined into a single file (res/raw/prechacthis.pl). That file
 also includes some predicate definitions taken from swi-pl's list
 library.
 
-It works in genymotion (ie, android running on x86). I haven't tried
-it on ARM yet. An arm-specific boot file may need to be generated.
+It works in genymotion (ie, android running on x86) and on
+arm (2013 Nexus 7).
+
+Right now, the user interface is really awful.
 
 Things to do:
 
+* pull the prolog query invocation stuff into a service (or something)
+  so that you can rotate the device while the patterns are being generated
+  and have that not be a disaster. (also: don't crash if you run a second
+  query)
+* rather than generating 1000 results and stopping, generate two screenfuls
+  worth of results, then generate some more once the user scrolls down
+* show some sort of indication when there are no results
+* add a UI to interpret prechacthis results, with some of the niceties
+  that the website has
+* de-dup the results (I just saw a set that included both 11p2p4 and 1p2p41)
 * pull the swi-pl changes out into something that'll be easier
   to maintain as swi-pl changes
 * make the swi-pl library functions available in a less ridiculous
   way
 * incorporate prechacthis code in a less preposterously unmaintable
   way
-* add a UI to create prechacthis queries
-* add a UI to interpret prechacthis results
+* improve the query UI

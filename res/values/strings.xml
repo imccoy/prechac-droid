@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PrechacThisActivity</string>
+
+    <string name="app_name">PrechacThis</string>
+    <string name="min_passes">Minimum passes</string>
+    <string name="max_passes">Maximum passes</string>
+    <string name="number_objects">Number of objects</string>
+    <string name="number_people">Number of people</string>
+    <string name="pattern_length">Pattern length</string>
+    <string name="title_activity_search">Prechac Search</string>
+    <string name="action_settings">Settings</string>
+
 </resources>
