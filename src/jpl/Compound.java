@@ -245,7 +245,8 @@ public class Compound extends Term {
 	 * @return  string representation of an Compound
 	 */
 	public String toString() {
-		return quotedName() + (args.length > 0 ? "(" + Term.toString(args) + ")" : "");
+		//return quotedName() + (args.length > 0 ? "(" + Term.toString(args) + ")" : "");
+		return this.name + (args.length > 0 ? "(" + Term.toString(args) + ")" : "");
 	}
 	/**
 	 * Two Compounds are equal if they are identical (same object) or their names and arities are equal and their

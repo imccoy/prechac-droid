@@ -3,6 +3,9 @@
       package="com.fineshambles.prechacthis"
       android:versionCode="1"
       android:versionName="1.0">
+<permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"></permission>
+<permission android:name="android.permission.READ_EXTERNAL_STORAGE"></permission>
+
     <application android:label="@string/app_name" android:icon="@drawable/ic_launcher" android:debuggable="true">
         <activity android:name="PrechacThisActivity"
                   android:label="@string/app_name">

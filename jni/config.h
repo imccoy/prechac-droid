@@ -25,6 +25,8 @@
 /* Define if regular files can be mapped */
 #define CAN_MMAP_FILES 1
 
+#undef HAVE_LOCALECONV
+
 /* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
    systems. This function is required for `alloca.c' support on those systems.
    */

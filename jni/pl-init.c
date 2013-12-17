@@ -1385,7 +1385,7 @@ vfatalError(const char *fm, va_list args)
 
   char optimistic[2048];
   Svsprintf(optimistic, fm, args);
-  __android_log_print(ANDROID_LOG_ERROR, "FATAL PROLOG ERROR", optimistic);
+  __android_log_print(ANDROID_LOG_ERROR, "FATAL PROLOG ERROR", "%s", optimistic);
   switch ( active++ )
   { case 1:
       exit(2);

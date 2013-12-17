@@ -1759,12 +1759,12 @@ gethex( CONST char **sp, U *rvp, int rounding, int sign)
 	int i;
 #ifdef NO_LOCALE_CACHE
 	const unsigned char *decimalpoint = (unsigned char*)
-		localeconv()->decimal_point;
+		localeconv_()->decimal_point;
 #else
 	const unsigned char *decimalpoint;
 	static unsigned char *decimalpoint_cache;
 	if (!(s0 = decimalpoint_cache)) {
-		s0 = (unsigned char*)localeconv()->decimal_point;
+		s0 = (unsigned char*)localeconv_()->decimal_point;
 		if ((decimalpoint_cache = (unsigned char*)
 				MALLOC(strlen((CONST char*)s0) + 1))) {
 			strcpy((char*)decimalpoint_cache, (CONST char*)s0);
@@ -2550,7 +2550,7 @@ strtod
 	for(s1 = s; s1 > s0 && *--s1 == '0'; )
 		++nz1;
 #ifdef USE_LOCALE
-	s1 = localeconv()->decimal_point;
+	s1 = localeconv_()->decimal_point;
 	if (c == *s1) {
 		c = '.';
 		if (*++s1) {

@@ -196,7 +196,7 @@ rc_save_archive(RcArchive rca, const char *to)
 { FILE *fd;
   char tmp[200];
 
-  sprintf(tmp, "__tmp%d.prc", (int)getpid());
+  sprintf(tmp, "/sdcard/__tmp%d.prc", (int)getpid());
 
   if ( to == NULL )
     to = rca->path;

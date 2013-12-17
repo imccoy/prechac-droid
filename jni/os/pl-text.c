@@ -747,7 +747,8 @@ PL_mb_text(PL_chars_t *text, int flags)
   IOENC target = ((flags&REP_UTF8) ? ENC_UTF8 :
 		  (flags&REP_MB)   ? ENC_ANSI : ENC_ISO_LATIN_1);
 
-  if ( text->encoding != target )
+  if ( text->encoding != target &&
+        !(text->encoding == ENC_ISO_LATIN_1 && target == ENC_ANSI) )
   { Buffer b = findBuffer(BUF_RING);
 
     switch(text->encoding)

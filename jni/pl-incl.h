@@ -138,7 +138,7 @@ handy for it someone wants to add a data type to the system.
 #define O_SOFTCUT		1
 #define O_COMPILE_ARITH		1
 #define O_COMPILE_IS		1
-#define O_CALL_AT_MODULE	1
+#define O_CALL_AT_MODULE 1
 #define O_STRING		1
 #define O_QUASIQUOTATIONS		1
 #define O_CATCHTHROW		1

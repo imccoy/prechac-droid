@@ -2507,7 +2507,8 @@ code thiscode;
 
 #if VMCODE_IS_ADDRESS
   if ( qid == QID_EXPORT_WAM_TABLE )
-  { interpreter_jmp_table = jmp_table;	/* make it globally known */
+  { 
+    interpreter_jmp_table = jmp_table;	/* make it globally known */
     succeed;
   }
 #endif /* VMCODE_IS_ADDRESS */

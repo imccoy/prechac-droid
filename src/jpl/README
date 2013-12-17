@@ -1,1 +1,9 @@
 This directory copied from swi-prolog/packages/jpl/src/java/jpl/
+
+The only change is in Compound.toString():
+ - return quotedName() + (args.length > 0 ? "(" + Term.toString(args) + ")" : "");
+ + return this.name + (args.length > 0 ? "(" + Term.toString(args) + ")" : "");
+
+If you're seeing stack overflow exceptions when things go wrong in prolog land,
+plonk a breakpoint in Query.get1() where the prolog exception is initially
+brought into javaland and see what's up.

@@ -9,7 +9,8 @@ typedef enum
 {
   D_BREAK,
   I_NOP,
-  H_CONST,
+  H_ATOM,
+  H_SMALLINT,
   H_NIL,
   H_INTEGER,
   H_INT64,
@@ -26,7 +27,8 @@ typedef enum
   H_RLIST,
   H_POP,
   H_LIST_FF,
-  B_CONST,
+  B_ATOM,
+  B_SMALLINT,
   B_NIL,
   B_INTEGER,
   B_INT64,
@@ -170,4 +172,4 @@ typedef enum
 } vmi;
 
 #define I_HIGHEST ((int)VMI_END_LIST)
-#define VM_SIGNATURE 0x448ef64b
+#define VM_SIGNATURE 0x5edfd4ac

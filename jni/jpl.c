@@ -3937,7 +3937,6 @@ setIntValue(
     }
 
 
-#if 0
 /*-----------------------------------------------------------------------
  * setInt64Value
  *
@@ -3962,7 +3961,6 @@ static bool
 			)
 		;
 	}
-#endif
 
 
 /*-----------------------------------------------------------------------
@@ -4571,7 +4569,7 @@ JNIEXPORT jboolean JNICALL
 		&&	jint64_holder != NULL
 		&&	getUIntPtrValue(env,jterm,&term)				/* confirms that jterm isn't null */
 		&&	PL_get_int64(term,&i64)
-		&&	setLongValue(env,jint64_holder,i64)
+		&&	setInt64Value(env,jint64_holder,i64)
 	;
     }
 
@@ -4968,7 +4966,7 @@ Java_jpl_fli_Prolog_put_1integer(JNIEnv *env,
 
   if ( jpl_ensure_pvm_init(env) &&
        getUIntPtrValue(env, jterm, &term) )
-  { return PL_put_integer( term, (int)ji);
+  { return PL_put_int64( term, ji);
   }
 
   return FALSE;

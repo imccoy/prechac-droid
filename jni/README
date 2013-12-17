@@ -16,4 +16,8 @@ There's a few small changes:
   * skip cleanupTerm in pl-init.c's cleanupProlog
   * changed chflags |= REP_MB to chflags |= REP_UTF8 in os/pl-files.c
     get_file_name
-
+  * changed jni/os/pl-text.c's PL_mb_text function so
+        if ( text->encoding != target )
+    becomes
+        if ( text->encoding != target &&
+              !(text->encoding == ENC_ISO_LATIN_1 && target == ENC_ANSI) )
