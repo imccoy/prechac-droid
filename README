@@ -1,0 +1,24 @@
+This repo contains enough stuff to start up a prolog interpreter
+and invoke prechacthis through the Prolog JPL and the android
+NDK. Right now, it's kind of a hack.
+
+It contains a patched version of the swi-pl interpreter (the
+changes are described in jni/README) and a version of prechacthis
+that has had the important bits (for some definition of important)
+combined into a single file (res/raw/prechacthis.pl). That file
+also includes some predicate definitions taken from swi-pl's list
+library.
+
+It works in genymotion (ie, android running on x86). I haven't tried
+it on ARM yet. An arm-specific boot file may need to be generated.
+
+Things to do:
+
+* pull the swi-pl changes out into something that'll be easier
+  to maintain as swi-pl changes
+* make the swi-pl library functions available in a less ridiculous
+  way
+* incorporate prechacthis code in a less preposterously unmaintable
+  way
+* add a UI to create prechacthis queries
+* add a UI to interpret prechacthis results
