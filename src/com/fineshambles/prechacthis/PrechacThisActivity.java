@@ -3,10 +3,8 @@ package com.fineshambles.prechacthis;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.DragEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
-import android.view.View.OnDragListener;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.ArrayAdapter;
@@ -28,7 +26,8 @@ public class PrechacThisActivity extends Activity implements OnClickListener
 	private TextView minPassesDisplay;
 	private TextView maxPassesDisplay;
 	
-    /** Called when the activity is first created. */
+	private PatternParameters patternParameters;
+	
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
@@ -45,16 +44,48 @@ public class PrechacThisActivity extends Activity implements OnClickListener
         this.minPassesDisplay = (TextView)findViewById(R.id.min_passes_display);
         this.maxPassesDisplay = (TextView)findViewById(R.id.max_passes_display);
         
-        final int PERIOD_DEFAULT_INDEX = 3;
+        patternParameters = PatternParameters.fromBundle(savedInstanceState);
         
-        numberPeople.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5));
-        numberPeople.setSelection(getStateInt(savedInstanceState, "NUMBER_PEOPLE", 0));
+        initializeWithArray(numberPeople, patternParameters.getNumberJugglers(), 2, 3, 4, 5);
+        numberPeople.setOnItemSelectedListener(new OnItemSelectedListener() {
+
+			public void onItemSelected(AdapterView<?> arg0, View arg1,
+					int position, long id) {
+				numberPeopleChanged((Integer)numberPeople.getItemAtPosition(position));
+			}
+
+			public void onNothingSelected(AdapterView<?> arg0) {
+				numberPeople.setSelection(patternParameters.getNumberJugglers());
+				
+			}
+		});
+		
+        initializeWithArray(numberObjects, patternParameters.getNumberObjects(), 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        numberObjects.setOnItemSelectedListener(new OnItemSelectedListener() {
+
+			public void onItemSelected(AdapterView<?> arg0, View arg1,
+					int position, long id) {
+				numberObjectsChanged((Integer)numberObjects.getItemAtPosition(position));
+			}
+
+			public void onNothingSelected(AdapterView<?> arg0) {
+				numberObjects.setSelection(patternParameters.getNumberObjects());
+			}
+		});
+		
+        initializeWithArray(maxHeight, patternParameters.getMaxHeight(), 2, 3, 4, 5, 6, 7, 8);
+        maxHeight.setOnItemSelectedListener(new OnItemSelectedListener() {
+
+			public void onItemSelected(AdapterView<?> arg0, View arg1,
+					int position, long id) {
+				maxHeightChanged((Integer)maxHeight.getItemAtPosition(position));
+			}
+
+			public void onNothingSelected(AdapterView<?> arg0) {
+				maxHeight.setSelection(patternParameters.getMaxHeight());
+			}
+		});
         
-        numberObjects.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5, 6, 7, 8, 9, 10));
-        numberObjects.setSelection(getStateInt(savedInstanceState, "NUMBER_OBJECTS", 2));
-        
-        maxHeight.setAdapter(this.<Integer>arrayOptions(2, 3, 4, 5, 6, 7, 8));
-        maxHeight.setSelection(getStateInt(savedInstanceState, "MAX_HEIGHT", 3));
         
         period.setOnItemSelectedListener(new OnItemSelectedListener() {
 
@@ -65,12 +96,11 @@ public class PrechacThisActivity extends Activity implements OnClickListener
 			}
 
 			public void onNothingSelected(AdapterView<?> arg0) {
-				period.setSelection(PERIOD_DEFAULT_INDEX);
+				period.setSelection(patternParameters.getPeriod());
 			}
         	
         });
-        period.setAdapter(this.<Integer>arrayOptions(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
-        period.setSelection(getStateInt(savedInstanceState, "PERIOD", PERIOD_DEFAULT_INDEX));
+        initializeWithArray(period, patternParameters.getPeriod(), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
         maxPasses.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
 			public void onProgressChanged(SeekBar arg0, int progress, boolean fromUser) {
@@ -90,24 +120,47 @@ public class PrechacThisActivity extends Activity implements OnClickListener
 
 			public void onStopTrackingTouch(SeekBar seekBar) {}
         });
-        maxPasses.setProgress(getStateInt(savedInstanceState, "MAX_PASSES", PERIOD_DEFAULT_INDEX));
-        minPasses.setProgress(getStateInt(savedInstanceState, "MIN_PASSES", 1));
-
+        minPasses.setProgress(patternParameters.getMinPasses());
+        maxPasses.setProgress(patternParameters.getMaxPasses());
         
         goButton.setOnClickListener(this);
     }
+
+	private <T> void initializeWithArray(Spinner spinner, T currentValue,
+			T... options) {
+    	spinner.setAdapter(arrayOptions(options));
+		for (int i = 0; i < options.length; i++) {
+			if (options[i].equals(currentValue)) {
+				spinner.setSelection(i);
+				break;
+			}
+		}
+	}
+	
+    private <T> ArrayAdapter<T> arrayOptions( T... options) {
+		return new ArrayAdapter<T>(this, R.layout.plain_text_view, options);
+	}
     
-    private int getStateInt(Bundle savedInstanceState, String key, int def) {
-    	if (savedInstanceState == null)
-    		return def;
-    	return savedInstanceState.getInt(key, def);
+	protected void numberPeopleChanged(int numberPeople) {
+		patternParameters = patternParameters.withNumberJugglers(numberPeople);
+		
+	}
+
+	protected void numberObjectsChanged(int numberObjects) {
+		patternParameters = patternParameters.withNumberObjects(numberObjects);
+	}
+    
+    protected void maxHeightChanged(int maxHeight) {
+		patternParameters = patternParameters.withMaxHeight(maxHeight);
 	}
 
 	protected void minPassesChanged(int progress) {
+		patternParameters = patternParameters.withMinPasses(progress);
 		minPassesDisplay.setText("At least " + progress + " pass" + (progress != 1 ? "es" : ""));
 	}
 
 	protected void maxPassesChanged(int progress) {
+		patternParameters = patternParameters.withMaxPasses(progress);
 		maxPassesDisplay.setText("and at most " + progress + " pass" + (progress != 1 ? "es" : ""));
 		minPasses.setMax(progress);
 	}
@@ -116,22 +169,14 @@ public class PrechacThisActivity extends Activity implements OnClickListener
 		maxPasses.setMax(period.intValue() + 1); // the +1 is because the seek bar doesn't let you
 		                                         // seek to the end, but we want to allow every
 		                                         // throw to be a pass
+		patternParameters = patternParameters.withPeriod(period);
 	}
 
 	@Override
     protected void onSaveInstanceState(Bundle outState) {
     	super.onSaveInstanceState(outState);
-    	outState.putInt("NUMBER_OBJECTS", (Integer)this.numberObjects.getSelectedItem());
-		outState.putInt("NUMBER_PEOPLE", (Integer)this.numberPeople.getSelectedItem());
-		outState.putInt("MAX_HEIGHT", (Integer)this.maxHeight.getSelectedItem());
-		outState.putInt("PERIOD", (Integer)this.period.getSelectedItem());
-		outState.putInt("MAX_PASSES", this.maxPasses.getProgress());
-		outState.putInt("MIN_PASSES", this.minPasses.getProgress());
+    	patternParameters.toBundle(outState);
     }
-
-	private <T> ArrayAdapter<T> arrayOptions( T... options) {
-		return new ArrayAdapter<T>(this, R.layout.plain_text_view, options);
-	}
 	
 	
 
@@ -139,12 +184,7 @@ public class PrechacThisActivity extends Activity implements OnClickListener
 		Intent intent = new Intent();
 		intent.setClass(this, SearchActivity.class);
 		intent.setAction("PRECHACTHIS_SEARCH");
-		intent.putExtra("NUMBER_OBJECTS", (Integer)this.numberObjects.getSelectedItem());
-		intent.putExtra("NUMBER_PEOPLE", (Integer)this.numberPeople.getSelectedItem());
-		intent.putExtra("MAX_HEIGHT", (Integer)this.maxHeight.getSelectedItem());
-		intent.putExtra("PERIOD", (Integer)this.period.getSelectedItem());
-		intent.putExtra("MAX_PASSES", this.maxPasses.getProgress());
-		intent.putExtra("MIN_PASSES", this.minPasses.getProgress());
+		patternParameters.toIntent(intent);
 		this.startActivity(intent);
 	}
  

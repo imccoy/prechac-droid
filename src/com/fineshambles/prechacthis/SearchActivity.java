@@ -41,12 +41,9 @@ public class SearchActivity extends Activity {
 		patterns.setAdapter(patternsAdapter);
 		
 		Intent intent = this.getIntent();
+		PatternParameters patternParameters = PatternParameters.fromIntent(intent);
 		Intent serviceIntent = new Intent(this, PrechacGenerator.class);
-		for (String s : new String[] { "NUMBER_JUGGLERS", "NUMBER_OBJECTS",
-				"MAX_HEIGHT", "PERIOD", "MAX_PASSES", "MIN_PASSES"}) {
-			if (intent.hasExtra(s))
-				serviceIntent.putExtra(s, intent.getIntExtra(s, 0));
-		}
+		patternParameters.toIntent(serviceIntent);
 		startService(serviceIntent);
 		
 		localBroadcastManager.registerReceiver(patternReceiver , new IntentFilter(PrechacGenerator.ACTION_PATTERN_GENERATED));

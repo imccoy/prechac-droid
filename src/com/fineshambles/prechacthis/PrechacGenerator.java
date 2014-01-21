@@ -21,12 +21,7 @@ import android.util.Log;
 public class PrechacGenerator extends Service {
 
 	public static final String ACTION_PATTERN_GENERATED = "PATTERN_GENERATED";
-	private int numberJugglers = -1;
-	private int numberObjects = -1;
-	private int maxHeight = -1;
-	private int period = -1;
-	private int maxPasses = -1;
-	private int minPasses = -1;
+	private PatternParameters parameters = null;
 	
 	private ArrayList<Pattern> cache = new ArrayList<Pattern>();
 	
@@ -41,27 +36,12 @@ public class PrechacGenerator extends Service {
 	
 	@Override
 	public int onStartCommand(Intent intent, int flags, int startId) {
-		int numberJugglers = intent.getIntExtra("NUMBER_JUGGLERS", 2);
-		int numberObjects = intent.getIntExtra("NUMBER_OBJECTS", 4);
-		int maxHeight = intent.getIntExtra("MAX_HEIGHT", 4);
-		int period = intent.getIntExtra("PERIOD", 4);
-		int maxPasses = intent.getIntExtra("MAX_PASSES", Math.max(1, period - 1));
-		int minPasses = intent.getIntExtra("MIN_PASSES", 1);
+		PatternParameters parameters = PatternParameters.fromIntent(intent);
 		
-		if (this.numberJugglers == numberJugglers &&
-				this.numberObjects == numberObjects &&
-				this.maxHeight == maxHeight &&
-				this.period == period &&
-				this.maxPasses == maxPasses &&
-				this.minPasses == minPasses) {
+		if (this.parameters != null && this.parameters.equals(parameters)) {
 			existingRequest();
 		} else {
-			this.numberJugglers = numberJugglers;
-			this.numberObjects = numberObjects;
-			this.maxHeight = maxHeight;
-			this.period = period;
-			this.maxPasses = maxPasses;
-			this.minPasses = minPasses;
+			this.parameters = parameters;
 			new Thread(new Generator()).start();
 		}
 		return START_NOT_STICKY;
@@ -78,12 +58,12 @@ public class PrechacGenerator extends Service {
 			final Variable siteswapList = new Variable("SiteswapList");
 			Term emptyList = Util.textToTerm("[]");
 			final Query query = new Query("siteswap", new Term[] { siteswapList,
-					new jpl.Integer(numberJugglers), // jugglers
-					new jpl.Integer(numberObjects), // objects
-					new jpl.Integer(period), // length
-					new jpl.Integer(maxHeight), // max height
-					new jpl.Integer(minPasses), // min passes
-					new jpl.Integer(maxPasses), // max passes
+					new jpl.Integer(parameters.getNumberJugglers()), // jugglers
+					new jpl.Integer(parameters.getNumberObjects()), // objects
+					new jpl.Integer(parameters.getPeriod()), // length
+					new jpl.Integer(parameters.getMaxHeight()), // max height
+					new jpl.Integer(parameters.getMinPasses()), // min passes
+					new jpl.Integer(parameters.getMaxPasses()), // max passes
 					emptyList, // contain
 					emptyList, // don't contain
 					emptyList, // club does
