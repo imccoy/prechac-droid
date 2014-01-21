@@ -25,9 +25,7 @@ public class SearchActivity extends Activity {
 	private BroadcastReceiver patternReceiver = new BroadcastReceiver() {
 		@Override
 		public void onReceive(Context context, Intent intent) {
-			Log.d("SearchActivity", "got pattern broadcast");
 			Pattern p = intent.getExtras().getParcelable("pattern");
-			Log.d("SearchActivity", p.toString());
 			patternsAdapter.add(p.toString());
 		}
 	};
