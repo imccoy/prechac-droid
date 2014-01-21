@@ -22,16 +22,24 @@ public class SearchActivity extends Activity {
 	private ListView patterns;
 	private ArrayAdapter<String> patternsAdapter;
 	private LocalBroadcastManager localBroadcastManager;
+	private PatternParameters parameters;
+	
 	private BroadcastReceiver patternReceiver = new BroadcastReceiver() {
 		@Override
 		public void onReceive(Context context, Intent intent) {
-			Pattern p = intent.getExtras().getParcelable("pattern");
-			patternsAdapter.add(p.toString());
+			PatternParameters patternParameters = PatternParameters.fromIntent(intent);
+			if (patternParameters.equals(SearchActivity.this.parameters)) {
+				Pattern p = intent.getExtras().getParcelable("pattern");
+				patternsAdapter.add(p.toString());
+			}
 		}
 	};
 	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
+		Intent intent = this.getIntent();
+		this.parameters = PatternParameters.fromIntent(intent);
+		
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_search);
 		localBroadcastManager = LocalBroadcastManager.getInstance(this);
@@ -40,10 +48,8 @@ public class SearchActivity extends Activity {
 		patternsAdapter = new ArrayAdapter<String>(this, R.layout.plain_text_view);
 		patterns.setAdapter(patternsAdapter);
 		
-		Intent intent = this.getIntent();
-		PatternParameters patternParameters = PatternParameters.fromIntent(intent);
 		Intent serviceIntent = new Intent(this, PrechacGenerator.class);
-		patternParameters.toIntent(serviceIntent);
+		parameters.toIntent(serviceIntent);
 		startService(serviceIntent);
 		
 		localBroadcastManager.registerReceiver(patternReceiver , new IntentFilter(PrechacGenerator.ACTION_PATTERN_GENERATED));

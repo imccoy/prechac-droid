@@ -21,9 +21,9 @@ import android.util.Log;
 public class PrechacGenerator extends Service {
 
 	public static final String ACTION_PATTERN_GENERATED = "PATTERN_GENERATED";
-	private PatternParameters parameters = null;
-	
+
 	private ArrayList<Pattern> cache = new ArrayList<Pattern>();
+	private Generator currentGenerator = null;
 	
 	private Prolog prolog;
 	
@@ -38,16 +38,41 @@ public class PrechacGenerator extends Service {
 	public int onStartCommand(Intent intent, int flags, int startId) {
 		PatternParameters parameters = PatternParameters.fromIntent(intent);
 		
-		if (this.parameters != null && this.parameters.equals(parameters)) {
-			existingRequest();
+		if (this.currentGenerator != null && this.currentGenerator.sameParameters(parameters)) {
+			existingRequest(parameters);
 		} else {
-			this.parameters = parameters;
-			new Thread(new Generator()).start();
+			startGenerator(new Generator(parameters));
 		}
 		return START_NOT_STICKY;
 	}
 
+	private void startGenerator(final Generator generator) {
+		Runnable runnable = new Runnable() {
+			public void run() {
+				cache = new ArrayList<Pattern>();
+				currentGenerator = generator;
+				generator.run();
+			}
+		};
+		if (currentGenerator == null) {
+			new Thread(runnable).start();
+		} else {
+			currentGenerator.finishAnd(runnable);
+		}
+	}
+
 	private class Generator implements Runnable {
+		private Runnable finishCallback;
+		private PatternParameters parameters;
+
+		public Generator(PatternParameters parameters) {
+			this.parameters = parameters;
+		}
+
+		public boolean sameParameters(PatternParameters parameters) {
+			return this.parameters.equals(parameters);
+		}
+
 		public void run() {
 			if (!prolog.init()) {
 				new AlertDialog.Builder(PrechacGenerator.this)
@@ -75,8 +100,16 @@ public class PrechacGenerator extends Service {
 			generateAllSolutions(query, siteswapList);
 		}
 			
-	    private void generateAllSolutions(final Query query, final Variable siteswapList) {
+	    public void finishAnd(Runnable finishCallback) {
+	    	this.finishCallback = finishCallback;
+		}
+
+		private void generateAllSolutions(final Query query, final Variable siteswapList) {
 			while (cache.size() < 3000 && query.hasMoreSolutions()) {
+				if (finishCallback != null) {
+					finishCallback.run();
+					return;
+				}
 				generateOneSolution(query, siteswapList);
 			}
 		}
@@ -90,19 +123,20 @@ public class PrechacGenerator extends Service {
 			Term[] bindings = Util.listToTermArray(binding);
 			Pattern p = new Pattern(bindings);
 			cache.add(p);
-			broadcastPattern(p);
+			broadcastPattern(p, parameters);
 		}
 	}
 
-	private void broadcastPattern(Pattern p) {
+	private void broadcastPattern(Pattern p, PatternParameters parameters) {
 		Intent intent = new Intent(ACTION_PATTERN_GENERATED);
 		intent.putExtra("pattern", p);
+		parameters.toIntent(intent);
 		localBroadcastManager.sendBroadcast(intent);
 	}
 
-	private void existingRequest() {
+	private void existingRequest(PatternParameters parameters) {
 		for (Pattern p : cache) {
-			broadcastPattern(p);
+			broadcastPattern(p, parameters);
 		}
 	}
 

@@ -127,4 +127,9 @@ public class PatternParameters {
 				p.getMaxPasses() == getMaxPasses();
 	}
 	
+	@Override
+	public String toString() {
+		return String.format("% jugglers with % objects juggling a pattern of period % with no throws higher than % and % - % passes",
+				numberJugglers, numberObjects, period, maxHeight, minPasses, maxPasses);
+	}
 }
