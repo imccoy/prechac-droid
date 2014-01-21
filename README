@@ -12,7 +12,12 @@ library.
 It works in genymotion (ie, android running on x86) and on
 arm (2013 Nexus 7).
 
-Right now, the user interface is really awful.
+Right now, the app is really awful.
+
+How to make it go:
+ 1. run ndk-build.sh in this directory
+ 2. run "ant debug"
+ 3. run "ant installd"
 
 Things to do:
 

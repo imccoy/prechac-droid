@@ -17,13 +17,18 @@ import android.util.Log;
 
 public class Prolog {
 	private Context context;
+	private static Boolean initialisationSucceeded;
 
 	public Prolog(Context context) {
 		this.context = context;
 	}
 
 	public boolean init() {
-		return initProlog() && initPrechacThis();
+		if (initialisationSucceeded != null) {
+			return initialisationSucceeded.booleanValue();
+		}
+		initialisationSucceeded = initProlog() && initPrechacThis();
+		return initialisationSucceeded;
 	}
 
 	private boolean initProlog() {

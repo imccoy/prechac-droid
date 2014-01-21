@@ -29,6 +29,12 @@
                 <action android:name="PRECHACTHIS_SEARCH" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.fineshambles.prechacthis.PrechacGenerator"
+            android:enabled="true"
+            android:exported="true" >
+        </service>
     </application>
 
 </manifest>
