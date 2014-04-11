@@ -12,6 +12,14 @@ public class Toss {
 		this.pass = pass;
 	}
 	
+	@Override
+	public boolean equals(Object o) {
+		if (!(o instanceof Toss))
+			return false;
+		Toss t = (Toss)o;
+		return (t.height == height && t.pass == pass);
+	}
+	
 	public String toString() {
 		double fpart = height - Math.floor(height);
 		String heightString = String.format(Locale.US, fpart < .01 ? "%.0f" : "%.1f", height);

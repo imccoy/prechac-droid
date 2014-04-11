@@ -435,9 +435,9 @@ nth0_gen(Pos, List, X, NewList) :-
 
 %%%  --- number operations ---
 
-compare_expr(eq,R1,R2) :- R1 is R2.
-compare_expr(gt,R1,R2) :- R1 < R2.
-compare_expr(lt,R1,R2) :- R1 > R2.
+compare_expr(=,R1,R2) :- R1 is R2.
+compare_expr(>,R1,R2) :- R1 < R2.
+compare_expr(<,R1,R2) :- R1 > R2.
 
 even(Int) :-
 	0 is Int mod 2.
@@ -1619,16 +1619,16 @@ is_biggest([Pattern], Pattern) :- !.
 is_biggest([Pattern|ListOfPatterns], Biggest) :-
 	is_biggest(ListOfPatterns, Biggest),
 	compare_swaps(Order, Biggest, Pattern),
-	Order \= lt, !.
+	Order \= <, !.
 is_biggest([Biggest|ListOfPatterns], Biggest) :-
 	is_biggest(ListOfPatterns, Pattern),
 	compare_swaps(Order, Biggest, Pattern),
-	Order = gt, !.
+	Order = >, !.
 
 is_bigger_than_list([], _Siteswap) :- !.
 is_bigger_than_list([Head|Tail], Siteswap) :-
 	compare(Order,Siteswap,Head),
-	Order \= lt,
+	Order \= <,
 	is_bigger_than_list(Tail, Siteswap).
 
 
@@ -1636,16 +1636,16 @@ is_smallest([Pattern], Pattern) :- !.
 is_smallest([Pattern|ListOfPatterns], Smallest) :-
 	is_smallest(ListOfPatterns, Smallest),
 	compare_swaps(Order, Smallest, Pattern),
-	Order \= gt, !.
+	Order \= >, !.
 is_smallest([Smallest|ListOfPatterns], Smallest) :-
 	is_smallest(ListOfPatterns, Pattern),
 	compare_swaps(Order, Smallest, Pattern),
-	Order = lt, !.
+	Order = <, !.
 
 is_smaller_than_list([], _Siteswap).
 is_smaller_than_list([Head|Tail], Siteswap) :-
 	compare_swaps(Order,Siteswap,Head),
-	Order \= gt,
+	Order \= >,
 	is_smaller_than_list(Tail, Siteswap).
 
 cleanEquals([],[]) :- !.

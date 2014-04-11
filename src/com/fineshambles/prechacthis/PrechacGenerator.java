@@ -122,8 +122,10 @@ public class PrechacGenerator extends Service {
 			Term binding = (Term) solution.get(siteswapList.name);
 			Term[] bindings = Util.listToTermArray(binding);
 			Pattern p = new Pattern(bindings);
-			cache.add(p);
-			broadcastPattern(p, parameters);
+			if (!cache.contains(p)) {
+				cache.add(p);
+				broadcastPattern(p, parameters);
+			}
 		}
 	}
 

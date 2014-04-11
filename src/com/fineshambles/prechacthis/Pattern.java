@@ -24,6 +24,21 @@ public class Pattern implements Parcelable {
 	private Pattern(int length) {
 		this.tosses = new Toss[length];
 	}
+	
+	@Override
+	public boolean equals(Object o) {
+		if (!(o instanceof Pattern)) {
+			return false;
+		}
+		Pattern p = (Pattern)o;
+		if (p.tosses.length != tosses.length)
+			return false;
+		for (int i = 0; i < tosses.length; i++) {
+			if (!p.tosses[i].equals(tosses[i]))
+				return false;
+		}
+		return true;
+	}
 
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
