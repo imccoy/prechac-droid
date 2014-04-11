@@ -107,11 +107,13 @@ public class PrechacGenerator extends Service {
 		private void generateAllSolutions(final Query query, final Variable siteswapList) {
 			while (cache.size() < 3000 && query.hasMoreSolutions()) {
 				if (finishCallback != null) {
+					query.abort();
 					finishCallback.run();
 					return;
 				}
 				generateOneSolution(query, siteswapList);
 			}
+			currentGenerator = null; // race condition: what if finishCallback has only just been set?
 		}
 	
 		private void generateOneSolution(Query query, Variable siteswapList) {
