@@ -1,6 +1,6 @@
 This repo contains enough stuff to start up a prolog interpreter
 and invoke prechacthis through the Prolog JPL and the android
-NDK. Right now, it's kind of a hack.
+NDK.
 
 It contains a patched version of the swi-pl interpreter (the
 changes are described in jni/README) and a version of prechacthis
@@ -12,8 +12,6 @@ library.
 It works in genymotion (ie, android running on x86) and on
 arm (2013 Nexus 7).
 
-Right now, the app is really awful.
-
 How to make it go:
  1. run ndk-build.sh in this directory
  2. run "ant debug"
@@ -21,16 +19,11 @@ How to make it go:
 
 Things to do:
 
-* pull the prolog query invocation stuff into a service (or something)
-  so that you can rotate the device while the patterns are being generated
-  and have that not be a disaster. (also: don't crash if you run a second
-  query)
 * rather than generating 1000 results and stopping, generate two screenfuls
   worth of results, then generate some more once the user scrolls down
 * show some sort of indication when there are no results
 * add a UI to interpret prechacthis results, with some of the niceties
   that the website has
-* de-dup the results (I just saw a set that included both 11p2p4 and 1p2p41)
 * pull the swi-pl changes out into something that'll be easier
   to maintain as swi-pl changes
 * make the swi-pl library functions available in a less ridiculous
@@ -38,3 +31,6 @@ Things to do:
 * incorporate prechacthis code in a less preposterously unmaintable
   way
 * improve the query UI
+* don't depend on GMP (this means either replacing the GMP stuff in swi-pl
+  with our own rational code, or just not using rdiv in the pattern
+  generator)
