@@ -30,11 +30,19 @@ public class Pattern implements Parcelable {
 	
 	private Rational rdiv(Term term) {
 		Compound hTerm = (Compound)term;
-		return new Rational(integer(hTerm.arg(1)),integer(hTerm.arg(2)));
+		return new Rational(integer(hTerm.arg(1)), integer(hTerm.arg(2)));
 	}
 
 	private Pattern(int length) {
 		this.tosses = new Toss[length];
+	}
+
+	public Toss getToss(int i) {
+		return this.tosses[i];
+	}
+	
+	public int length() {
+		return tosses.length;
 	}
 	
 	@Override
@@ -93,5 +101,6 @@ public class Pattern implements Parcelable {
 			return new Pattern[size];
 		}
 	};
+
 
 }
