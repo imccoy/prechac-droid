@@ -805,13 +805,14 @@ siteswap(OutputPattern, NumberOfJugglers, Objects, Length, MaxHeight, PassesMin,
 	constraint_fillable(Pattern, NumberOfJugglers, Objects, MaxHeight),
 	siteswap(NumberOfJugglers, Objects, MaxHeight, PassesMin, PassesMax, Pattern),
 	catch(
-		preprocessConstraint(DontContainString, negativ, Length, NumberOfJugglers, MaxHeight, DontContain),
-		constraint_unclear,
-		throw(constraint_unclear('"exclude"'))
+	        preprocessConstraint(DontContainString, negativ, Length, NumberOfJugglers, MaxHeight, DontContain),
+	        constraint_unclear,
+	        throw(constraint_unclear('"exclude"'))
 	),
 	forall(member(DontContainPattern, DontContain), dontContainRotation(Pattern, DontContainPattern)),
 	orderMultiplexes(Pattern, PatternM),
 	rotateHighestFirst(PatternM, OutputPattern).
+
 
 initConstraintCheck :- 
 	retractall(constraintChecked(_)),
@@ -1161,28 +1162,30 @@ possibleThrow(NumberOfJugglers, Length, MaxHeight, p(Throw, Index, Origen)) :-
 % 1 1 1 1 -4 BasePattern            landingSites2Pattern(LandingSites, BasePattern)
 % 
 
-
 siteswap(Jugglers, Objects, MaxHeight, PassesMin, PassesMax, Pattern) :-
    length(Pattern, Period),
    landingSites1(Pattern, LandingSites),
-   possibleLandingSites1(Pattern, PossibleLandingSites), 
+   possibleLandingSites1(Pattern, PossibleLandingSites),
    fillPermutation(PossibleLandingSites, LandingSites),
    landingSites2Pattern(LandingSites, BasePattern),
-   fillInAndCopy(Pattern, BasePattern, ObjectsPattern),	 % Pattern to calculate the Objects of the Constraints 
+   fillInAndCopy(Pattern, BasePattern, ObjectsPattern),  % Pattern to calculate the Objects of the Constraints
    objects(ObjectsPattern, Jugglers, ObjectsFromConstraints),
    MissingObjects is Objects - ObjectsFromConstraints,
-   Prechator is (Period * 1.0) / Jugglers,
-   (nonvar(PassesMax) -> 
-    	(
-			amountOfPasses(Pattern, PassesBevor),
-			PassesToAddMax is PassesMax - PassesBevor
-		); 
-		PassesToAddMax = PassesMax
-	),
-   addObjects(BasePattern, MissingObjects, Jugglers, PassesToAddMax, 0, MaxHeight, Prechator, Pattern),	
+   Prechator is Period rdiv Jugglers,
+   
+   (nonvar(PassesMax) ->
+        (
+                        amountOfPasses(Pattern, PassesBevor),
+                        PassesToAddMax is PassesMax - PassesBevor
+                );
+                PassesToAddMax = PassesMax
+        ),
+   addObjects(BasePattern, MissingObjects, Jugglers, PassesToAddMax, 0, MaxHeight, Prechator, Pattern),
    (passesMin(Pattern, PassesMin); Jugglers=1),
    passesMax(Pattern, PassesMax).
    %checkMultiplexes(Pattern).
+
+
 
 addObjects([], 0, _Jugglers, _PassesMax, _MinHeight, _MaxHeight, _Prechator, []) :- !.
 addObjects([_BaseHead|BaseRest], MissingObjects, Jugglers, PassesMax, MinHeight, MaxHeight, Prechator, [Throw|PatternRest]) :-

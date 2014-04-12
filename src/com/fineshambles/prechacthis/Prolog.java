@@ -27,6 +27,7 @@ public class Prolog {
 		if (initialisationSucceeded != null) {
 			return initialisationSucceeded.booleanValue();
 		}
+		System.loadLibrary("gmp");
 		initialisationSucceeded = initProlog() && initPrechacThis();
 		return initialisationSucceeded;
 	}

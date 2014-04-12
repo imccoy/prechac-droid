@@ -4,10 +4,10 @@ import java.util.Locale;
 
 public class Toss {
 
-	private double height;
+	private Rational height;
 	private int pass;
 
-	public Toss(double height, int pass) {
+	public Toss(Rational height, int pass) {
 		this.height = height;
 		this.pass = pass;
 	}
@@ -17,17 +17,16 @@ public class Toss {
 		if (!(o instanceof Toss))
 			return false;
 		Toss t = (Toss)o;
-		return (t.height == height && t.pass == pass);
+		return (t.height.equals(height) && t.pass == pass);
 	}
 	
 	public String toString() {
-		double fpart = height - Math.floor(height);
-		String heightString = String.format(Locale.US, fpart < .01 ? "%.0f" : "%.1f", height);
+		String heightString = "" + height;
 		String pString = pass == 0 ? "" : "p";
 		return heightString + pString;
 	}
 	
-	public double getHeight() {
+	public Rational getHeight() {
 		return height;
 	}
 
