@@ -186,6 +186,7 @@
 
 /* Define to 1 if you have the <gmp.h> header file. */
 /* #undef HAVE_GMP_H */
+#define HAVE_GMP_H 1
 
 /* Define you you have gmp_randinit_mt (gmp > 4.2.0) */
 /* #undef HAVE_GMP_RANDINIT_MT */
