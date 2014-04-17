@@ -7,9 +7,15 @@ import jpl.Term;
 
 public class Pattern implements Parcelable {
 	private final Toss[] tosses;
-
-	public Pattern(Term[] bindings) {
-		this(bindings.length);
+	private int numberJugglers;
+	
+	private Pattern(int numberJugglers, int length) {
+		this.numberJugglers = numberJugglers;
+		this.tosses = new Toss[length];
+	}
+	
+	public Pattern(int numberJugglers, Term[] bindings) {
+		this(numberJugglers, bindings.length);
 		for (int i = 0; i < tosses.length; i++) {
 			// bindings are p(a, b, c). a is the throw height
 			//                          b is 1 if it's a pass (what about >2 jugglers?)
@@ -33,12 +39,12 @@ public class Pattern implements Parcelable {
 		return new Rational(integer(hTerm.arg(1)), integer(hTerm.arg(2)));
 	}
 
-	private Pattern(int length) {
-		this.tosses = new Toss[length];
-	}
-
 	public Toss getToss(int i) {
 		return this.tosses[i];
+	}
+	
+	public int getNumberJugglers() {
+		return numberJugglers;
 	}
 	
 	public int length() {
@@ -74,6 +80,7 @@ public class Pattern implements Parcelable {
 	}
 
 	public void writeToParcel(Parcel parcel, int arg1) {
+		parcel.writeInt(numberJugglers);
 		parcel.writeInt(tosses.length);
 		for (int i = 0; i < tosses.length; i++) {
 			parcel.writeInt(tosses[i].getHeight().getNumerator());
@@ -86,8 +93,9 @@ public class Pattern implements Parcelable {
 	  = new Parcelable.Creator<Pattern>() {
 
 		public Pattern createFromParcel(Parcel source) {
+			int numberJugglers = source.readInt();
 			int length = source.readInt();
-			Pattern p = new Pattern(length);
+			Pattern p = new Pattern(numberJugglers, length);
 			for (int i = 0; i < length; i++) {
 				int heightNum = source.readInt();
 				int heightDen = source.readInt();
@@ -101,6 +109,5 @@ public class Pattern implements Parcelable {
 			return new Pattern[size];
 		}
 	};
-
 
 }

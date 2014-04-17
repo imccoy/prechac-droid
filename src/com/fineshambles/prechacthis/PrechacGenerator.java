@@ -123,7 +123,7 @@ public class PrechacGenerator extends Service {
 				return;
 			Term binding = (Term) solution.get(siteswapList.name);
 			Term[] bindings = Util.listToTermArray(binding);
-			Pattern p = new Pattern(bindings);
+			Pattern p = new Pattern(parameters.getNumberJugglers(), bindings);
 			if (!cache.contains(p)) {
 				cache.add(p);
 				broadcastPattern(p, parameters);

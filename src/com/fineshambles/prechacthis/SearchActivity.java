@@ -58,17 +58,9 @@ public class SearchActivity extends Activity {
 		        if(row == null) {
 		            row = (LinearLayout) inflater.inflate(R.layout.siteswap_row, parent, false);
 		        }
-	            while (row.getChildCount() > pattern.length()) {
-	            	row.removeViewAt(0);
-	            }
-	            while (row.getChildCount() < pattern.length()) {
-	            	row.addView(inflater.inflate(R.layout.siteswap_row_cell, row, false));
-	            }
-		       
-		        for (int i = 0; i < pattern.length(); i++) {
-		        	TextView cell = (TextView)row.getChildAt(i);
-		        	cell.setText(pattern.getToss(i).toString());
-		        }
+		        PatternRenderer renderer = new PatternRenderer(pattern);
+		        renderer.render(inflater, row);
+	            
 		       
 		        return row;
 			}
