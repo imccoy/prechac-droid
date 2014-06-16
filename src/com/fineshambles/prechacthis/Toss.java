@@ -6,10 +6,12 @@ public class Toss {
 
 	private Rational height;
 	private int pass;
+	private int siteswap;
 
-	public Toss(Rational height, int pass) {
+	public Toss(Rational height, int pass, int siteswap) {
 		this.height = height;
 		this.pass = pass;
+		this.siteswap = siteswap;
 	}
 	
 	@Override
@@ -32,6 +34,10 @@ public class Toss {
 
 	public int getPass() {
 		return pass;
+	}
+
+	public int getSiteswap() {
+		return siteswap;
 	}
 
 }

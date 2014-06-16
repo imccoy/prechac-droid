@@ -26,7 +26,7 @@ public class Pattern implements Parcelable {
 			Rational height = (heightTerm instanceof jpl.Integer) ?
 					new Rational(integer(heightTerm),1) :
 					rdiv(heightTerm);
-			tosses[i] = new Toss(height, integer(pTerm.arg(2)));
+			tosses[i] = new Toss(height, integer(pTerm.arg(2)), integer(pTerm.arg(3)));
 		}
 	}
 
@@ -86,6 +86,7 @@ public class Pattern implements Parcelable {
 			parcel.writeInt(tosses[i].getHeight().getNumerator());
 			parcel.writeInt(tosses[i].getHeight().getDenominator());
 			parcel.writeInt(tosses[i].getPass());
+			parcel.writeInt(tosses[i].getSiteswap());
 		}
 	}
 	
@@ -100,7 +101,8 @@ public class Pattern implements Parcelable {
 				int heightNum = source.readInt();
 				int heightDen = source.readInt();
 				int pass = source.readInt();
-				p.tosses[i] = new Toss(new Rational(heightNum, heightDen), pass);
+				int siteswap = source.readInt();
+				p.tosses[i] = new Toss(new Rational(heightNum, heightDen), pass, siteswap);
 			}
 			return p;
 		}
@@ -109,5 +111,13 @@ public class Pattern implements Parcelable {
 			return new Pattern[size];
 		}
 	};
+
+	public int getNumberOfClubs() {
+		Rational sum = new Rational(0,1);
+		for (int i = 0; i < length(); i++) {
+			sum = sum.plus(getToss(i).getHeight());
+		}
+		return sum.times(new Rational(1,length())).times(numberJugglers).truncate();
+	}
 
 }

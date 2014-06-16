@@ -1,12 +1,28 @@
 package com.fineshambles.prechacthis;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Comparator;
 import java.util.Locale;
+
+import com.fineshambles.prechacthis.details.PointInTime;
 
 public class Rational {
 
 	private int num;
 	private int den;
+	
+	public static final Comparator<Rational> COMPARATOR = new Comparator<Rational>() {
+
+		@Override
+		public int compare(Rational lhs, Rational rhs) {
+			int a = lhs.num * rhs.den;
+			int b = rhs.num * lhs.den;
+			if (a < b) return -1;
+			if (a > b) return 1;
+			else return 0;
+		}
+	};
 
 	public Rational(int num, int den) {
 		this.num = num;
@@ -50,6 +66,59 @@ public class Rational {
 
 	public int getDenominator() {
 		return den;
+	}
+
+	public Rational times(int num) {
+		return this.times(new Rational(num, 1));
+	}
+
+	public Rational times(Rational r) {
+		return (new Rational(r.num * num, r.den * den)).simplify();
+	}
+	
+	public Rational plus(int num) {
+		return this.plus(new Rational(num, 1));
+	}
+	
+	public Rational plus(Rational r) {
+		return  (new Rational(r.num * den + num * r.den, den * r.den)).simplify();
+	}
+
+	public Rational fractionalPart() {
+		return new Rational(num % den, den);
+	}
+
+	public int truncate() {
+		return num / den;
+	}
+
+	public Rational minus(int r) {
+		return this.plus(-r);
+	}
+	
+	public Rational minus(Rational r) {
+		return this.plus(negate(r));
+	}
+
+	private Rational negate(Rational r) {
+		return new Rational(-r.num, r.den);
+	}
+
+	public Rational mod(int n) {
+		// what does modulus even mean for rational numbers?
+		Rational current = this;
+		Rational next = null;
+		Rational zero = new Rational(0,1);
+		while (true) {
+			next = current.minus(n);
+			if (COMPARATOR.compare(next, zero) < 0) {
+				return current;
+			}
+		}
+	}
+
+	public boolean isZero() {
+		return num == 0;
 	}
 	
 }
