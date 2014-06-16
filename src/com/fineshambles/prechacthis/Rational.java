@@ -1,11 +1,8 @@
 package com.fineshambles.prechacthis;
 
-import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.Locale;
-
-import com.fineshambles.prechacthis.details.PointInTime;
 
 public class Rational {
 
@@ -23,6 +20,8 @@ public class Rational {
 			else return 0;
 		}
 	};
+	public static final Rational ZERO = new Rational(0, 1);
+	public static final Rational ONE = new Rational(1,1);
 
 	public Rational(int num, int den) {
 		this.num = num;

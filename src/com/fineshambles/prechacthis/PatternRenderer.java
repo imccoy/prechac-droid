@@ -1,5 +1,7 @@
 package com.fineshambles.prechacthis;
 
+import java.util.Iterator;
+
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.text.Html;
@@ -17,6 +19,9 @@ public class PatternRenderer {
 	}
 
 	public void render(LayoutInflater inflater, LinearLayout row) {
+		render(inflater, row, new IntegerIterable(0, pattern.length()));
+	}
+	public void render(LayoutInflater inflater, LinearLayout row, Iterable<Integer> walk) {
 		while (row.getChildCount() > pattern.length()) {
         	row.removeViewAt(0);
         }
@@ -24,7 +29,7 @@ public class PatternRenderer {
         	row.addView(inflater.inflate(R.layout.siteswap_row_cell, row, false));
         }
        
-        for (int i = 0; i < pattern.length(); i++) {
+        for (int i : walk) {
         	TextView cell = (TextView)row.getChildAt(i);
         	Toss toss = pattern.getToss(i);
         	if (toss.getPass() >= 1 && toss.getPass() <= COLORS.length) {

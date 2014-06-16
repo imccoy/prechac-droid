@@ -8,6 +8,7 @@
     </permission>
     <permission android:name="android.permission.READ_EXTERNAL_STORAGE" >
     </permission>
+    <uses-sdk android:minSdkVersion="5"/>
 
     <application
         android:icon="@drawable/ic_launcher"

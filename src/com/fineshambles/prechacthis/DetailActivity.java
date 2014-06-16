@@ -1,14 +1,10 @@
 package com.fineshambles.prechacthis;
 
-import java.util.List;
-
-import com.fineshambles.prechacthis.details.ClubDistribution;
-import com.fineshambles.prechacthis.details.Orbit;
-import com.fineshambles.prechacthis.details.PointInTime;
-
 import android.app.Activity;
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 public class DetailActivity extends Activity {
 	private Pattern pattern;
@@ -16,13 +12,27 @@ public class DetailActivity extends Activity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		
 		setContentView(R.layout.activity_details);
+		LayoutInflater layoutInflater = getLayoutInflater();
+		
 		pattern = (Pattern)getIntent().getParcelableExtra("pattern");
 		LinearLayout siteswapView = (LinearLayout)findViewById(R.id.details_siteswap);
 		PatternRenderer renderer = new PatternRenderer(pattern);
-		renderer.render(getLayoutInflater(), siteswapView);
-		PointInTime[] pointsInTime = PointInTime.generateAll(pattern);
-		int[] orbits = Orbit.generateAll(pattern);
-		ClubDistribution clubDistribution = new ClubDistribution(pattern, pointsInTime, orbits);
+		
+		renderer.render(layoutInflater, siteswapView);
+		
+		Orbit[] orbits = Orbit.getOrbits(pattern);
+		LinearLayout orbitsView = (LinearLayout)findViewById(R.id.details_orbits);
+		for (int i = 0; i < orbits.length; i++) {
+			LinearLayout orbitView = new LinearLayout(this);
+			orbitView.setOrientation(LinearLayout.HORIZONTAL);
+			TextView intro = new TextView(this);
+			int numberOfObjects = orbits[i].numberOfObjects();
+			intro.setText(numberOfObjects == 1 ? "1 object is doing: " : numberOfObjects + " objects are doing: ");
+			orbitsView.addView(intro);
+			renderer.render(layoutInflater, orbitView, orbits[i].getIndexIterable());
+			orbitsView.addView(orbitView);
+		}
 	}
 }
