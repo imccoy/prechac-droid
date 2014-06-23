@@ -23,6 +23,12 @@ public class DetailActivity extends Activity {
 		renderer.render(layoutInflater, siteswapView);
 		
 		Orbit[] orbits = Orbit.getOrbits(pattern);
+		renderOrbits(orbits, layoutInflater, renderer);
+	}
+
+	private void renderOrbits(Orbit[] orbits, LayoutInflater layoutInflater,
+			PatternRenderer renderer) {
+		
 		LinearLayout orbitsView = (LinearLayout)findViewById(R.id.details_orbits);
 		for (int i = 0; i < orbits.length; i++) {
 			LinearLayout orbitView = new LinearLayout(this);

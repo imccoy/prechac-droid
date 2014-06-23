@@ -31,16 +31,13 @@ public class Orbit {
 		boolean taken[] = new boolean[pattern.length()];
 		int startIdx;
 		while ((startIdx = firstNotTaken(taken)) != -1) {
-			Log.d("Orbit", "START Orbit at " + startIdx);
 			int idx = startIdx;
 			ArrayList<Pair<Integer, Toss>> tossesAtTimes = new ArrayList<Pair<Integer, Toss>>();
 			do {
 				taken[idx] = true;
 				Toss toss = pattern.getToss(idx);
 				tossesAtTimes.add(new Pair<Integer, Toss>(idx, toss));
-				Log.d("Orbit", "Orbit continues from " + idx + "(" + toss.getHeight().toString() + ", " + toss.getPass() + ", " + toss.getSiteswap()  + ")");
 				idx = (idx + toss.getSiteswap()) % pattern.length();
-				Log.d("Orbit", "Orbit continues to " + idx + " by " + toss.getSiteswap());
 			} while (idx != startIdx);
 			@SuppressWarnings("unchecked")
 			Orbit orbit = new Orbit(tossesAtTimes.toArray(new Pair[0]), pattern.length(), pattern.getNumberJugglers());
