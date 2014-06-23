@@ -24,6 +24,9 @@ public class DetailActivity extends Activity {
 		
 		Orbit[] orbits = Orbit.getOrbits(pattern);
 		renderOrbits(orbits, layoutInflater, renderer);
+		
+		
+		ClubPosition[] clubPositions = ClubPosition.getClubPositions(pattern);
 	}
 
 	private void renderOrbits(Orbit[] orbits, LayoutInflater layoutInflater,
