@@ -120,4 +120,11 @@ public class Pattern implements Parcelable {
 		return sum.times(new Rational(1,length())).times(numberJugglers).truncate();
 	}
 
+	public Pattern rotate(int d) {
+		Pattern p = new Pattern(numberJugglers, length());
+		for (int i = 0; i < length(); i++)
+			p.tosses[i] = tosses[(i + d) % length()];
+		return p;
+	}
+
 }

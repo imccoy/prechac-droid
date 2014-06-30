@@ -2,6 +2,7 @@ package com.fineshambles.prechacthis;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.util.Pair;
 import android.view.LayoutInflater;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -26,7 +27,21 @@ public class DetailActivity extends Activity {
 		renderOrbits(orbits, layoutInflater, renderer);
 		
 		
-		ClubPosition[] clubPositions = ClubPosition.getClubPositions(pattern);
+		Pair<ClubPosition[], int[]> clubPositions = ClubPosition.getClubPositions(pattern);
+		StartPosition startPosition = new StartPosition(pattern.getNumberJugglers(), clubPositions);
+		renderStartPosition(pattern, startPosition, clubPositions.second);
+	}
+
+	private void renderStartPosition(Pattern pattern, StartPosition startPosition, int[] progresses) {
+		LinearLayout startsView = (LinearLayout)findViewById(R.id.details_starts);
+		for (int i = 0; i < pattern.getNumberJugglers(); i++) {
+			TextView textView = new TextView(this);
+			String left = "L " + startPosition.falses[i];
+			String right = "R " + startPosition.trues[i];
+			String p = pattern.rotate(progresses[i]).toString();
+			textView.setText(left + " " + right + " " + p);
+			startsView.addView(textView);
+		}
 	}
 
 	private void renderOrbits(Orbit[] orbits, LayoutInflater layoutInflater,

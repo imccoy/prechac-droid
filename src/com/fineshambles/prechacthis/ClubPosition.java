@@ -12,16 +12,18 @@ public class ClubPosition {
 	private Pair<Integer, Boolean> endPlace;
 	private Rational endTime;
 	private boolean alive;
+	private Toss toss;
 
-	private ClubPosition(Pair<Integer, Boolean> startPlace, Rational startTime, Pair<Integer, Boolean> endPlace, Rational endTime) {
+	private ClubPosition(Pair<Integer, Boolean> startPlace, Rational startTime, Pair<Integer, Boolean> endPlace, Rational endTime, Toss toss) {
 		this.startPlace = startPlace;
 		this.startTime = startTime;
 		this.endPlace = endPlace;
 		this.endTime = endTime;
 		this.alive = true;
+		this.toss = toss;
 	}
 
-	public static ClubPosition[] getClubPositions(Pattern pattern) {
+	public static Pair<ClubPosition[],int[]> getClubPositions(Pattern pattern) {
 		ArrayList<ClubPosition> clubPositions = new ArrayList<ClubPosition>();
 		int numberOfClubs = pattern.getNumberOfClubs();
 		int currentJuggler = 0;
@@ -53,9 +55,8 @@ public class ClubPosition {
 			// how far along you are, and you get the offset of the beat that juggler n
 			// is doing then.
 			
-			int currentTossIndex = (place - minuend.times(currentJuggler).truncate()) % pattern.length();
-			while (currentTossIndex < 0)
-				currentTossIndex += pattern.length();
+			int currentTossIndex = tossIndex(pattern, currentJuggler, place,
+					minuend);
 			Toss currentToss = pattern.getToss(currentTossIndex);
 			Log.e("ClubPosition", "at time " + currentTime + " Juggler " + currentJuggler + " does " + currentToss + " (from " + currentTossIndex + ", " + place + ", " + minuend.times(currentJuggler) + ")");
 			if (!currentToss.getHeight().equals(Rational.ZERO)) {
@@ -66,8 +67,9 @@ public class ClubPosition {
 				Rational landingTime = currentTime.plus(currentToss.getHeight());
 				clubPositions.add(new ClubPosition(new Pair<Integer, Boolean>(currentJuggler, currentTossIndex % 2 == 0),
 						currentTime,
-						new Pair<Integer, Boolean>(destinationJuggler, (currentTossIndex + currentToss.getSiteswap() % 2) == 0),
-						landingTime));
+						new Pair<Integer, Boolean>(destinationJuggler, ((currentTossIndex + currentToss.getSiteswap()) % 2) == 0),
+						landingTime,
+						currentToss));
 			}	
 			currentTime = currentTime.plus(timeStep);
 			currentJuggler += 1;
@@ -78,8 +80,24 @@ public class ClubPosition {
 					place = 0;
 			}
 		}
-		
-		return clubPositions.toArray(new ClubPosition[0]);
+		ArrayList<ClubPosition> livePositions = new ArrayList<ClubPosition>();
+		for (ClubPosition p : clubPositions) {
+			if (p.alive)
+				livePositions.add(p);
+		}
+		int[] progresses = new int[pattern.getNumberJugglers()];
+		for (int i = 0; i < pattern.getNumberJugglers(); i++) {
+			progresses[i] = tossIndex(pattern, i, place, minuend);
+		}
+		return new Pair<ClubPosition[], int[]>(livePositions.toArray(new ClubPosition[0]), progresses);
+	}
+
+	private static int tossIndex(Pattern pattern, int currentJuggler,
+			int place, Rational minuend) {
+		int currentTossIndex = (place - minuend.times(currentJuggler).truncate()) % pattern.length();
+		while (currentTossIndex < 0)
+			currentTossIndex += pattern.length();
+		return currentTossIndex;
 	}
 
 	private static boolean markedLandingAtAsDead(Rational currentTime, ArrayList<ClubPosition> clubPositions) {
@@ -92,6 +110,16 @@ public class ClubPosition {
 		}
 		Log.e("ClubPosition", "new club");
 		return false;
+	}
+
+	public Pair<Integer, Boolean> getEndPlace() {
+		return endPlace;
+	}
+	
+	public String toString() {
+		return startTime + " (" + startPlace.first + ", " + startPlace.second + ") -> " +
+	           endTime + " (" + endPlace.first + ", " + endPlace.second + ") by " +
+			   toss;
 	}
 
 }
